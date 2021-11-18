@@ -277,27 +277,33 @@ class GraphicalFrame(GraphicalObject):
 #Pointers
 class Pointer():
     """The base object for pointers"""
-    def __init__(self,pointer) -> None:
-        self.pointer=pointer
-    def getValue(self):
-        return self.pointer.getValue()
+    def __init__(self) -> None:
+        self.last=None
+    def calculateValue(self):
+        pass
     def initialize(self,outer_object):
         pass
+    def getValue(self):
+        if self not in GraphicalBase.container.updatedList:#Recalculates the value only if it hasn't been calculated in this cycle
+            GraphicalBase.container.updatedList.append(self)
+            self.last=self.calculateValue()
+        return self.last
 
 #Static pointers
 class IntPointer(Pointer):
     def __init__(self, value:int) -> None:
         self.value=value
-    def getValue(self):
+    def calculateValue(self):
         return self.value
 
 #Object pointers
 class VariablePointer(Pointer):
     """Returns the value of a variable in a given object; before the value is returned, the object is updated; you can't make self-references, but you can find a way around the problem by modifying the same targeted value"""
     def __init__(self, object:GraphicalObject, variable:str) -> None:
+        super().__init__()
         self.object=object
         self.variable=variable
-    def getValue(self):
+    def calculateValue(self):
         self.object.update()#Updates the object in ordere to have correct values
         return getattr(self.object,self.variable)
     def initialize(self,outer_object):
@@ -310,7 +316,7 @@ class WindowPointer(Pointer):
     def __init__(self,varInt:int):
         """The varInt should be 0 for width and 1 for height"""
         self.varInt=varInt
-    def getValue(self):
+    def calculateValue(self):
         if self.varInt==0:
             return GraphicalBase.container.screen.get_width()
         else:
@@ -319,50 +325,37 @@ class WindowPointer(Pointer):
         GraphicalBase.container.windowPointedBy.append(outer_object)
 
 #Operational pointers
-class SumPointer(Pointer):
-    """Returns the sum of the values of the two given pointers"""
+class ComparativePointer(Pointer):
+    """Is used to compare two pointers and return a single value"""
     def __init__(self, pointer1:Pointer, pointer2:Pointer) -> None:
         self.pointer1=pointer1
         self.pointer2=pointer2
-    def getValue(self):
-        return self.pointer1.getValue()+self.pointer2.getValue()
+    def calculateValue(self):
+        return self.pointer1.calculateValue()
     def initialize(self, outer_object):#Initializes the inner objects
         self.pointer1.initialize(outer_object)
         self.pointer2.initialize(outer_object)
 
-class SubPointer(Pointer):
-    """Returns the subtraction of the values of the two given pointers"""
-    def __init__(self, pointer1:Pointer, pointer2:Pointer) -> None:
-        self.pointer1=pointer1
-        self.pointer2=pointer2
-    def getValue(self):
-        return self.pointer1.getValue()-self.pointer2.getValue()
-    def initialize(self, outer_object):
-        self.pointer1.initialize(outer_object)
-        self.pointer2.initialize(outer_object)
+class SumPointer(ComparativePointer):
+    """Returns the sum of the values of the two given pointers"""
+    def calculateValue(self):
+        return self.pointer1.getValue()+self.pointer2.getValue()
 
-class DivPointer(Pointer):
+class SubPointer(ComparativePointer):
+    """Returns the subtraction of the values of the two given pointers"""
+    def calculateValue(self):
+        return self.pointer1.getValue()-self.pointer2.getValue()
+
+class DivPointer(ComparativePointer):
     """Returns the division of the values of the two given pointers; Pointer1/Pointer2"""
-    def __init__(self, pointer1:Pointer, pointer2:Pointer) -> None:
-        self.pointer1=pointer1
-        self.pointer2=pointer2
-    def getValue(self):
+    def calculateValue(self):
         return self.pointer1.getValue()/self.pointer2.getValue()
-    def initialize(self, outer_object):
-        self.pointer1.initialize(outer_object)
-        self.pointer2.initialize(outer_object)
 
 #Confrontative pointers
-class MaxPointer(Pointer):
+class MaxPointer(ComparativePointer):
     """Returns the pointer with the bigger value between the two given"""
-    def __init__(self, pointer1:Pointer, pointer2:Pointer) -> None:
-        self.pointer1=pointer1
-        self.pointer2=pointer2
-    def getValue(self):
+    def calculateValue(self):
         if self.pointer1.getValue()>=self.pointer2.getValue():
             return self.pointer1.getValue()
         else:
             return self.pointer2.getValue()
-    def initialize(self, outer_object):
-        self.pointer1.initialize(outer_object)
-        self.pointer2.initialize(outer_object)
