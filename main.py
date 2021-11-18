@@ -11,6 +11,7 @@ class Container():
         GraphicalBase.first=None
         self.updatedList=[]#The objects updated in an update cycle; is needed in order to not update the same object twice
         self.windowPointedBy=[]#List of objects which point the window and will be updated on resize
+        self.layers={}#Dict of all layers by which objects are drawn; references are to the objects' names, so that if they are replaced there should be no trouble; every layer is a list with an int by index
     def resize(self,width:int,height:int) -> None:
         """A function which should be run when the video window is resized"""
         self.screen=pygame.display.set_mode((width,height),pygame.RESIZABLE)
@@ -20,13 +21,21 @@ class Container():
             GraphicalBase.container.updatedList=[]
             for graphicalObject in self.windowPointedBy:
                 graphicalObject.update()
-                print(graphicalObject)
+                #print(graphicalObject)
 
             GraphicalBase.first=None
     def draw(self) -> None:
         """Draws all the objects stored in the object_dict"""
-        for keyname in self.object_dict:
-            self.object_dict[keyname].draw()
+        """for keyname in self.object_dict:
+            self.object_dict[keyname].draw()"""
+        i=0
+        j=0
+        while i<len(self.layers):
+            if j in self.layers:
+                for keyname in self.layers[i]:
+                    self.object_dict[keyname].draw()
+                i+=1
+            j+=1
 
 #Graphical classes
 class GraphicalBase():
@@ -37,13 +46,19 @@ class GraphicalBase():
 
 class GraphicalObject():
     """Base of all graphical objects; holds its static variables in GraphicalBase"""
-    def __init__(self,name:str,pos_pointers,size_pointers) -> None:
+    def __init__(self,name:str,pos_pointers,size_pointers,layer=0) -> None:
         GraphicalBase.container.object_dict[name]=self
         #TODO: should add a random name specifier; should prob use a static variable
         self._name=name
         self.pointedBy=[]
         self.sizePointers=size_pointers
         self.posPointers=pos_pointers
+
+        #Adds in right layer
+        if layer not in GraphicalBase.container.layers:
+            GraphicalBase.container.layers[layer]=[]
+        if self not in GraphicalBase.container.layers[layer]:
+            GraphicalBase.container.layers[layer].append(self._name)
 
         if self.posPointers[0]!=None:
             self.posPointers[0].initialize(self)
@@ -113,8 +128,8 @@ class GraphicalObject():
         return "<'name':'"+self._name+"', 'pos':("+str(self.x)+","+str(self.y)+"), 'size':("+str(self.xSize)+","+str(self.ySize)+")>"
 
 class GraphicalRectangle(GraphicalObject):
-    def __init__(self, name: str, rect:pygame.Rect,color=(0,0,0),pos_pointers=(None,None),size_pointers=(None,None),init_update=True) -> None:
-        super().__init__(name,pos_pointers,size_pointers)
+    def __init__(self, name: str, rect:pygame.Rect,layer=0,color=(0,0,0),pos_pointers=(None,None),size_pointers=(None,None),init_update=True) -> None:
+        super().__init__(name,pos_pointers,size_pointers,layer=layer)
         self._rect=rect
         self._color=color
 
@@ -153,12 +168,11 @@ class GraphicalRectangle(GraphicalObject):
     def draw(self):
         pygame.draw.rect(surface=GraphicalBase.container.screen,color=self._color,rect=self._rect)
 
-#TODO: create a graphical object which rapresents windows, in order to be able to make updates using it
 #TODO: add layer logic to container draw
 
 class GraphicalSprite(GraphicalObject):
-    def __init__(self, name: str, image:pygame.Surface,coords=(0,0),size=(None,None),pos_pointers=(None,None),size_pointers=(None,None),init_update=True) -> None:#TODO: add a way to handle size
-        super().__init__(name,pos_pointers,size_pointers)
+    def __init__(self, name: str, image:pygame.Surface,coords=(0,0),layer=0,size=(None,None),pos_pointers=(None,None),size_pointers=(None,None),init_update=True) -> None:#TODO: add a way to handle size
+        super().__init__(name,pos_pointers,size_pointers,layer=layer)
         self._image=image
         self._coords=coords#TODO: add a way to handle coords
 
