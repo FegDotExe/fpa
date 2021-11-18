@@ -1,9 +1,21 @@
+from posixpath import dirname
 import pygame
+from os import path
 
 class Container():
-    """A general container which holds all the general update/draw/layer variables and methods.
+    """
+    Container
+    ----
+    A general container which holds all the general update/draw/layer variables and methods.
     
-    It contains all of the GraphicalObject objects in its object_dict; if two GraphicalObjects end up having the same name, the first one will be overwritten"""
+    ----
+    ----
+    ----
+    Variables
+    ----
+    - object_dict: a dict which contains all of the GraphicalObject classes, linked with their names; here's an example: {"player":<GraphicalSprite>}; if an object with an already existing name is created, the oldest gets overwritten
+    - updatedList: a list which holds all the objects which have been updated in an update cycle
+    - layers: a dict which contains the name references of the objects, layer by layer; the layers with lower values are the ones which get drawn first"""
     def __init__(self,screen:pygame.display) -> None:
         self.screen=screen
         self.object_dict={}
@@ -35,6 +47,10 @@ class Container():
                     self.object_dict[keyname].draw()
                 i+=1
             j+=1
+
+    def loadAssets(self,path) -> None:
+        """This function should load all assets in a folder and store them neatly in a dict"""
+        pass
 
 #Graphical classes
 class GraphicalBase():
@@ -129,7 +145,7 @@ class GraphicalObject():
     #TODO: add framed movement
 
 class GraphicalRectangle(GraphicalObject):
-    def __init__(self, name: str, rect:pygame.Rect,layer=0,color=(0,0,0),pos_pointers=(None,None),size_pointers=(None,None),init_update=True) -> None:
+    def __init__(self, name: str, rect=pygame.Rect((0,0),(1,1)),layer=0,color=(0,0,0),pos_pointers=(None,None),size_pointers=(None,None),init_update=True) -> None:
         super().__init__(name,pos_pointers,size_pointers,layer=layer)
         self._rect=rect
         self._color=color
@@ -170,8 +186,9 @@ class GraphicalRectangle(GraphicalObject):
         pygame.draw.rect(surface=GraphicalBase.container.screen,color=self._color,rect=self._rect)
 
 class GraphicalSprite(GraphicalObject):
-    def __init__(self, name: str, image:pygame.Surface,coords=(0,0),layer=0,size=(None,None),pos_pointers=(None,None),size_pointers=(None,None),init_update=True) -> None:#TODO: add a way to handle size
+    def __init__(self, name: str, image=pygame.image.load(path.dirname(__file__)+"/nullimage.png"),coords=(0,0),layer=0,size=(None,None),pos_pointers=(None,None),size_pointers=(None,None),init_update=True) -> None:#TODO: add a way to handle size
         super().__init__(name,pos_pointers,size_pointers,layer=layer)
+        self._base_image=image#Stores the base image; is used in order to prevent messiness when rescaling
         self._image=image
         self._coords=coords#TODO: add a way to handle coords
 
@@ -204,14 +221,14 @@ class GraphicalSprite(GraphicalObject):
         return self._image.get_width()
     @xSize.setter
     def xSize(self,value):
-        self._image=pygame.transform.scale(self._image,(value,self.ySize))
+        self._image=pygame.transform.scale(self._base_image,(value,self.ySize))
         self.beginUpdate()
     @property
     def ySize(self):
         return self._image.get_height()
     @ySize.setter
     def ySize(self,value):
-        self._image=pygame.transform.scale(self._image,(self.xSize,value))
+        self._image=pygame.transform.scale(self._base_image,(self.xSize,value))
         self.beginUpdate()
 
     def draw(self):
