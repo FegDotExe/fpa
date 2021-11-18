@@ -15,7 +15,6 @@ class Container():
     def resize(self,width:int,height:int) -> None:
         """A function which should be run when the video window is resized"""
         self.screen=pygame.display.set_mode((width,height),pygame.RESIZABLE)
-        #TODO: do all the other stuff which needs to be done on resize
         if len(self.windowPointedBy)>0:
             GraphicalBase.first=0
             GraphicalBase.container.updatedList=[]
@@ -32,7 +31,7 @@ class Container():
         j=0
         while i<len(self.layers):
             if j in self.layers:
-                for keyname in self.layers[i]:
+                for keyname in self.layers[j]:
                     self.object_dict[keyname].draw()
                 i+=1
             j+=1
@@ -127,6 +126,8 @@ class GraphicalObject():
     def __str__(self):
         return "<'name':'"+self._name+"', 'pos':("+str(self.x)+","+str(self.y)+"), 'size':("+str(self.xSize)+","+str(self.ySize)+")>"
 
+    #TODO: add framed movement
+
 class GraphicalRectangle(GraphicalObject):
     def __init__(self, name: str, rect:pygame.Rect,layer=0,color=(0,0,0),pos_pointers=(None,None),size_pointers=(None,None),init_update=True) -> None:
         super().__init__(name,pos_pointers,size_pointers,layer=layer)
@@ -167,8 +168,6 @@ class GraphicalRectangle(GraphicalObject):
     
     def draw(self):
         pygame.draw.rect(surface=GraphicalBase.container.screen,color=self._color,rect=self._rect)
-
-#TODO: add layer logic to container draw
 
 class GraphicalSprite(GraphicalObject):
     def __init__(self, name: str, image:pygame.Surface,coords=(0,0),layer=0,size=(None,None),pos_pointers=(None,None),size_pointers=(None,None),init_update=True) -> None:#TODO: add a way to handle size
@@ -217,7 +216,46 @@ class GraphicalSprite(GraphicalObject):
 
     def draw(self):
         GraphicalBase.container.screen.blit(self._image,self._coords)
+#TODO: smarter constructors
 
+class GraphicalFrame(GraphicalObject):
+    """Just a placeholder meant to store values useful for other classes"""
+    def __init__(self, name: str, pos=(0,0), size=(1,1), pos_pointers=(None,None), size_pointers=(None,None)) -> None:
+        super().__init__(name, pos_pointers, size_pointers, layer=0)
+        self._x=pos[0]
+        self._y=pos[1]
+        self._xSize=size[0]
+        self._ySize=size[1]
+
+    #Properties
+    @property
+    def x(self):
+        return self._x
+    @x.setter
+    def x(self,value):
+        self._x=value
+        self.beginUpdate()
+    @property
+    def y(self):
+        return self._y
+    @y.setter
+    def y(self,value):
+        self._y=value
+        self.beginUpdate()
+    @property
+    def xSize(self):
+        return self._xSize
+    @xSize.setter
+    def xSize(self,value):
+        self._xSize=value
+        self.beginUpdate()
+    @property
+    def ySize(self):
+        return self._ySize
+    @ySize.setter
+    def ySize(self,value):
+        self._ySize=value
+        self.beginUpdate()
 
 #Pointers
 class Pointer():
@@ -293,6 +331,21 @@ class DivPointer(Pointer):
         self.pointer2=pointer2
     def getValue(self):
         return self.pointer1.getValue()/self.pointer2.getValue()
+    def initialize(self, outer_object):
+        self.pointer1.initialize(outer_object)
+        self.pointer2.initialize(outer_object)
+
+#Confrontative pointers
+class MaxPointer(Pointer):
+    """Returns the pointer with the bigger value between the two given"""
+    def __init__(self, pointer1:Pointer, pointer2:Pointer) -> None:
+        self.pointer1=pointer1
+        self.pointer2=pointer2
+    def getValue(self):
+        if self.pointer1.getValue()>=self.pointer2.getValue():
+            return self.pointer1.getValue()
+        else:
+            return self.pointer2.getValue()
     def initialize(self, outer_object):
         self.pointer1.initialize(outer_object)
         self.pointer2.initialize(outer_object)
