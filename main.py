@@ -52,6 +52,43 @@ class Container():
         """This function should load all assets in a folder and store them neatly in a dict"""
         pass
 
+
+class Updatable():
+    """The superclass for all classes which can be updated and which trigger updates for other objects"""
+    def __init__(self,varDict:dict) -> None:
+        """varDict should be something like {"variableName":<correspondingPointer>}; the variables there inserted are set to their pointer value every time the object is updated"""
+        self.pointedBy=[]
+        self.pointedVarDict={}
+        for key in varDict:
+            if varDict[key]!=None:
+                self.pointedVarDict[key]=varDict[key]#Only sets the non-None values; should be better for performance
+        print("->",end="")
+        print(self.pointedVarDict)
+
+    def initPointers(self) -> None:
+        """Should be called after Updatable.__init__() from the subclass, in order to correctly initialize the pointers"""
+        for key in self.pointedVarDict:
+            self.pointedVarDict[key].initialize(self)
+
+    def beginUpdate(self):
+        #If this gets changed, the logic in Container.resize() should be changed too
+        if GraphicalBase.first==None:
+            print("sas")
+            GraphicalBase.first=self
+            GraphicalBase.container.updatedList=[]
+            self.update()
+            GraphicalBase.first=None
+
+    def update(self):
+        """This function is called when a graphical parameter which can have influence on other objects is called"""
+        if self not in GraphicalBase.container.updatedList:
+            GraphicalBase.container.updatedList.append(self)#It's important to have this at the beginning so that the class is not updated after this
+            #print(self)
+            print(self.pointedVarDict)
+            for key in self.pointedVarDict:
+                setattr(self,key,self.pointedVarDict[key].getValue())#Sets all the variables to the value of the corresponding pointers
+            for elements in self.pointedBy:
+                elements.update()
 #Graphical classes
 class GraphicalBase():
     """The base which holds static variables for graphical objects"""
@@ -59,10 +96,12 @@ class GraphicalBase():
         self.container=None
         self.first=None
 
-class GraphicalObject():
+class GraphicalObject(Updatable):
     """Base of all graphical objects; holds its static variables in GraphicalBase"""
     def __init__(self,name:str,pos_pointers,size_pointers,layer=0) -> None:
         GraphicalBase.container.object_dict[name]=self
+        super().__init__({"x":pos_pointers[0],"y":pos_pointers[1],"xSize":size_pointers[0],"ySize":size_pointers[1]})
+        self.initPointers()
         #TODO: should add a random name specifier; should prob use a static variable
         self._name=name
         self.pointedBy=[]
@@ -75,7 +114,7 @@ class GraphicalObject():
         if self not in GraphicalBase.container.layers[layer]:
             GraphicalBase.container.layers[layer].append(self._name)
 
-        if self.posPointers[0]!=None:
+        """if self.posPointers[0]!=None:
             self.posPointers[0].initialize(self)
         if self.posPointers[1]!=None:
             self.posPointers[1].initialize(self)
@@ -83,7 +122,7 @@ class GraphicalObject():
         if self.sizePointers[0]!=None:#Initialization in order to fill the pointedBy list
             self.sizePointers[0].initialize(self)
         if self.sizePointers[1]!=None:
-            self.sizePointers[1].initialize(self)
+            self.sizePointers[1].initialize(self)"""
     
     #Properties
     @property
@@ -115,7 +154,7 @@ class GraphicalObject():
         """This is where the drawing action should be"""
         pass
 
-    def beginUpdate(self):
+    """def beginUpdate(self):
         #If this gets changed, the logic in Container.resize() should be changed too
         if GraphicalBase.first==None:
             GraphicalBase.first=self
@@ -124,7 +163,7 @@ class GraphicalObject():
             GraphicalBase.first=None
 
     def update(self):
-        """This function is called when a graphical parameter which can have influence on other objects is called"""
+        #This function is called when a graphical parameter which can have influence on other objects is called
         if self not in GraphicalBase.container.updatedList:
             GraphicalBase.container.updatedList.append(self)#It's important to have this at the beginning so that the class is not updated after this
             #print(self)
@@ -137,7 +176,7 @@ class GraphicalObject():
             if self.sizePointers[1]!=None:#y size
                 self.ySize=self.sizePointers[1].getValue()
             for elements in self.pointedBy:
-                elements.update()
+                elements.update()"""
     
     def __str__(self):
         return "<'name':'"+self._name+"', 'pos':("+str(self.x)+","+str(self.y)+"), 'size':("+str(self.xSize)+","+str(self.ySize)+")>"
@@ -310,6 +349,7 @@ class VariablePointer(Pointer):
         self.object.pointedBy.append(outer_object)
 #TODO: Add self-reference for variables
 #TODO: Add a better way to refer to objects
+#TODO: Add a way to refer to an object variable; should prob do this with GraphicalBase and with setattr/getattr; there should be a store of dynamic pointers which update all the related objects when they are modified
 
 class WindowPointer(Pointer):
     """Returns the height or width of the game window"""
