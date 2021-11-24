@@ -56,24 +56,26 @@ class Container():
 class Updatable():
     """The superclass for all classes which can be updated and which trigger updates for other objects"""
     def __init__(self,varDict:dict) -> None:
+        self.upInit(varDict)
+
+    def upInit(self,varDict:dict) -> None:
         """varDict should be something like {"variableName":<correspondingPointer>}; the variables there inserted are set to their pointer value every time the object is updated"""
         self.pointedBy=[]
         self.pointedVarDict={}
         for key in varDict:
             if varDict[key]!=None:
                 self.pointedVarDict[key]=varDict[key]#Only sets the non-None values; should be better for performance
-        print("->",end="")
-        print(self.pointedVarDict)
 
     def initPointers(self) -> None:
-        """Should be called after Updatable.__init__() from the subclass, in order to correctly initialize the pointers"""
+        """Should be called after Updatable.upInit() from the subclass, in order to correctly initialize the pointers"""
         for key in self.pointedVarDict:
             self.pointedVarDict[key].initialize(self)
 
     def beginUpdate(self):
+        """Tries to start an update cycle, if one hasn't been started yet"""
         #If this gets changed, the logic in Container.resize() should be changed too
         if GraphicalBase.first==None:
-            print("sas")
+            #print("sas")
             GraphicalBase.first=self
             GraphicalBase.container.updatedList=[]
             self.update()
@@ -84,7 +86,7 @@ class Updatable():
         if self not in GraphicalBase.container.updatedList:
             GraphicalBase.container.updatedList.append(self)#It's important to have this at the beginning so that the class is not updated after this
             #print(self)
-            print(self.pointedVarDict)
+            #print(self.pointedVarDict)
             for key in self.pointedVarDict:
                 setattr(self,key,self.pointedVarDict[key].getValue())#Sets all the variables to the value of the corresponding pointers
             for elements in self.pointedBy:
@@ -334,6 +336,31 @@ class IntPointer(Pointer):
         self.value=value
     def calculateValue(self):
         return self.value
+
+#Updatable pointers
+class UpIntPointer(Updatable,Pointer):
+    """A pointer which points at an int value and which can trigger updates for pointing objects"""
+    def __init__(self,value:int) -> None:#Init is ok
+        """The value class is the base value"""
+        self._value=value
+        super().upInit({"value":self})
+        self._value=self.pointedVarDict["value"].getValue()#Sets value for inner value, in case it gets called before stuff happens
+        super().initPointers()
+
+    @property
+    def value(self):
+        return self._value
+    @value.setter
+    def value(self,amount):
+        self._value=amount
+        self.beginUpdate()
+
+    def calculateValue(self):
+        return self.value
+    def initialize(self, outer_object):
+        self.pointedBy.append(outer_object)
+    def getValue(self):
+        return self.calculateValue()
 
 #Object pointers
 class VariablePointer(Pointer):
