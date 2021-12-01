@@ -1,6 +1,6 @@
 from posixpath import dirname
 import pygame
-from os import path
+from os import path,listdir
 
 class Container():
     """
@@ -16,7 +16,11 @@ class Container():
     - object_dict: a dict which contains all of the GraphicalObject classes, linked with their names; here's an example: {"player":<GraphicalSprite>}; if an object with an already existing name is created, the oldest gets overwritten
     - updatedList: a list which holds all the objects which have been updated in an update cycle
     - layers: a dict which contains the name references of the objects, layer by layer; the layers with lower values are the ones which get drawn first"""
-    def __init__(self,screen:pygame.display) -> None:
+    def __init__(self,screen:pygame.display,dirpath) -> None:
+        self.assets={}
+        assetPath=dirpath+"assets/textures"
+        self.loadAssets(assetPath)
+
         self.screen=screen
         self.object_dict={}
         GraphicalBase.container=self
@@ -24,6 +28,28 @@ class Container():
         self.updatedList=[]#The objects updated in an update cycle; is needed in order to not update the same object twice
         self.windowPointedBy=[]#List of objects which point the window and will be updated on resize
         self.layers={}#Dict of all layers by which objects are drawn; references are to the objects' names, so that if they are replaced there should be no trouble; every layer is a list with an int by index
+    
+    def loadAssets(self,assetpath,subpath="") -> dict:
+        """This function should load all assets in a folder and store them neatly in a dict, even though most of the work is done by Container.getAsset()"""
+        self.assets=self.loadAsset(assetpath+subpath)
+    def loadAsset(self,thisPath):
+        """Is used to get an image asset. If this is an image, a pygame.Surface object; if this is a directory, the function is re-run at the path of the function"""
+        if path.isfile(thisPath):
+            return pygame.image.load(thisPath)
+        elif path.isdir(thisPath):
+            outputDict={}
+            for element in listdir(thisPath+"/"):
+                outputDict[element.replace(".png","")]=self.loadAsset(thisPath+"/"+element)
+            return outputDict
+    def getAsset(self,assetDirList:list):
+        """Returns the image at the assetDirList"""
+        currentDict=self.assets
+        for element in assetDirList:
+            currentDict=currentDict[element]
+        print(currentDict)
+        return currentDict
+
+
     def resize(self,width:int,height:int) -> None:
         """A function which should be run when the video window is resized"""
         self.screen=pygame.display.set_mode((width,height),pygame.RESIZABLE)
@@ -47,10 +73,6 @@ class Container():
                     self.object_dict[keyname].draw()
                 i+=1
             j+=1
-
-    def loadAssets(self,path) -> None:
-        """This function should load all assets in a folder and store them neatly in a dict"""
-        pass
 
 
 class Updatable():
@@ -88,19 +110,26 @@ class Updatable():
             #print(self)
             #print(self.pointedVarDict)
             for key in self.pointedVarDict:
-                setattr(self,key,self.pointedVarDict[key].getValue())#Sets all the variables to the value of the corresponding pointers
+                setattr(self,key,self.pointedVarDict[key].getValue())#Sets all the variables to the value of the corresponding pointers#FIXME: is this really needed?
             for elements in self.pointedBy:
                 elements.update()
 #Graphical classes
 class GraphicalBase():
     """The base which holds static variables for graphical objects"""
+    container=Container
     def __init__(self) -> None:
         self.container=None
         self.first=None
 
 class GraphicalObject(Updatable):
     """Base of all graphical objects; holds its static variables in GraphicalBase"""
-    def __init__(self,name:str,pos_pointers,size_pointers,layer=0) -> None:
+    def __init__(self,name:str,pos_pointers,size_pointers,layer=0,clickable=False) -> None:
+        """
+        This function provides to correctly intialize a GraphicalObject so that it can later be easily used
+
+        Variables:
+        - name: the name given to the object, used to identify it from other functions. It currently must be specified.
+        """
         GraphicalBase.container.object_dict[name]=self
         super().__init__({"x":pos_pointers[0],"y":pos_pointers[1],"xSize":size_pointers[0],"ySize":size_pointers[1]})
         self.initPointers()
@@ -115,16 +144,6 @@ class GraphicalObject(Updatable):
             GraphicalBase.container.layers[layer]=[]
         if self not in GraphicalBase.container.layers[layer]:
             GraphicalBase.container.layers[layer].append(self._name)
-
-        """if self.posPointers[0]!=None:
-            self.posPointers[0].initialize(self)
-        if self.posPointers[1]!=None:
-            self.posPointers[1].initialize(self)
-
-        if self.sizePointers[0]!=None:#Initialization in order to fill the pointedBy list
-            self.sizePointers[0].initialize(self)
-        if self.sizePointers[1]!=None:
-            self.sizePointers[1].initialize(self)"""
     
     #Properties
     @property
@@ -155,33 +174,9 @@ class GraphicalObject(Updatable):
     def draw(self):
         """This is where the drawing action should be"""
         pass
-
-    """def beginUpdate(self):
-        #If this gets changed, the logic in Container.resize() should be changed too
-        if GraphicalBase.first==None:
-            GraphicalBase.first=self
-            GraphicalBase.container.updatedList=[]
-            self.update()
-            GraphicalBase.first=None
-
-    def update(self):
-        #This function is called when a graphical parameter which can have influence on other objects is called
-        if self not in GraphicalBase.container.updatedList:
-            GraphicalBase.container.updatedList.append(self)#It's important to have this at the beginning so that the class is not updated after this
-            #print(self)
-            if self.posPointers[0]!=None:#x pos
-                self.x=self.posPointers[0].getValue()
-            if self.posPointers[1]!=None:#y pos
-                self.y=self.posPointers[1].getValue()
-            if self.sizePointers[0]!=None:#x size
-                self.xSize=self.sizePointers[0].getValue()
-            if self.sizePointers[1]!=None:#y size
-                self.ySize=self.sizePointers[1].getValue()
-            for elements in self.pointedBy:
-                elements.update()"""
     
     def __str__(self):
-        return "<'name':'"+self._name+"', 'pos':("+str(self.x)+","+str(self.y)+"), 'size':("+str(self.xSize)+","+str(self.ySize)+")>"
+        return "<'name':'"+self._name+"', 'pos':("+str(self.x)+","+str(self.y)+"), 'size':("+str(self.xSize)+","+str(self.ySize)+"), 'pointers':{"+str(self.pointedVarDict)+"}>"
 
     #TODO: add framed movement
 
@@ -226,11 +221,23 @@ class GraphicalRectangle(GraphicalObject):
     def draw(self):
         pygame.draw.rect(surface=GraphicalBase.container.screen,color=self._color,rect=self._rect)
 
+class GraphicalText(GraphicalObject):
+    """A quick and easy way to display text"""
+    def __init__(self, name: str, pos_pointers, size_pointers, layer=0, clickable=False) -> None:
+        super().__init__(name, pos_pointers, size_pointers, layer=layer, clickable=clickable)
+
 class GraphicalSprite(GraphicalObject):
-    def __init__(self, name: str, image=pygame.image.load(path.dirname(__file__)+"/nullimage.png"),coords=(0,0),layer=0,size=(None,None),pos_pointers=(None,None),size_pointers=(None,None),init_update=True) -> None:#TODO: add a way to handle size
+    def __init__(self, name: str, image=[],coords=(0,0),layer=0,size=(None,None),pos_pointers=(None,None),size_pointers=(None,None),init_update=True) -> None:
         super().__init__(name,pos_pointers,size_pointers,layer=layer)
-        self._base_image=image#Stores the base image; is used in order to prevent messiness when rescaling
-        self._image=image
+        if len(image)>0:
+            try:
+                self._base_image=GraphicalBase.container.getAsset(image)#Stores the base image; is used in order to prevent messiness when rescaling
+            except Exception as e:
+                image=[]
+        if len(image)==0:#Not an else so that it can be entered if load fails
+            self._base_image=GraphicalBase.container.getAsset(["nullimage"])
+        self._image=self._base_image
+        
         self._coords=coords#TODO: add a way to handle coords
 
         if size[0]!=None:
@@ -274,7 +281,6 @@ class GraphicalSprite(GraphicalObject):
 
     def draw(self):
         GraphicalBase.container.screen.blit(self._image,self._coords)
-#TODO: smarter constructors
 
 class GraphicalFrame(GraphicalObject):
     """Just a placeholder meant to store values useful for other classes"""
@@ -329,6 +335,10 @@ class Pointer():
             GraphicalBase.container.updatedList.append(self)
             self.last=self.calculateValue()
         return self.last
+    def __str__(self) -> str:
+        return "->None"
+    def __repr__(self) -> str:
+        return self.__str__()
 
 #Static pointers
 class IntPointer(Pointer):
@@ -336,6 +346,8 @@ class IntPointer(Pointer):
         self.value=value
     def calculateValue(self):
         return self.value
+    def __str__(self) -> str:
+        return "->"+str(self.value)
 
 #Updatable pointers
 class UpIntPointer(Updatable,Pointer):
@@ -344,8 +356,8 @@ class UpIntPointer(Updatable,Pointer):
         """The value class is the base value"""
         self._value=value
         super().upInit({"value":self})
-        self._value=self.pointedVarDict["value"].getValue()#Sets value for inner value, in case it gets called before stuff happens
         super().initPointers()
+        self.value=self._value
 
     @property
     def value(self):
@@ -361,22 +373,23 @@ class UpIntPointer(Updatable,Pointer):
         self.pointedBy.append(outer_object)
     def getValue(self):
         return self.calculateValue()
-
+    def __str__(self) -> str:
+        return "~>"+str(self.value)
 #Object pointers
 class VariablePointer(Pointer):
     """Returns the value of a variable in a given object; before the value is returned, the object is updated; you can't make self-references, but you can find a way around the problem by modifying the same targeted value"""
-    def __init__(self, object:GraphicalObject, variable:str) -> None:
+    def __init__(self, objectName:str, variable:str) -> None:
         super().__init__()
-        self.object=object
+        self.objectName=objectName
         self.variable=variable
     def calculateValue(self):
-        self.object.update()#Updates the object in ordere to have correct values
-        return getattr(self.object,self.variable)
+        reference(self.objectName).update()#Updates the object in ordere to have correct values
+        return getattr(reference(self.objectName),self.variable)
     def initialize(self,outer_object):
-        self.object.pointedBy.append(outer_object)
+        reference(self.objectName).pointedBy.append(outer_object)
+    def __str__(self) -> str:
+        return "=>("+str(reference(self.objectName).pointedVarDict[self.variable])+")"
 #TODO: Add self-reference for variables
-#TODO: Add a better way to refer to objects
-#TODO: Add a way to refer to an object variable; should prob do this with GraphicalBase and with setattr/getattr; there should be a store of dynamic pointers which update all the related objects when they are modified
 
 class WindowPointer(Pointer):
     """Returns the height or width of the game window"""
@@ -390,6 +403,11 @@ class WindowPointer(Pointer):
             return GraphicalBase.container.screen.get_height()
     def initialize(self, outer_object):
         GraphicalBase.container.windowPointedBy.append(outer_object)
+    def __str__(self) -> str:
+        if self.varInt==0:
+            return "~>container.screen.get_width()"
+        else:
+            return "~>container.screen.get_height()"
 
 #Operational pointers
 class ComparativePointer(Pointer):
@@ -407,16 +425,29 @@ class SumPointer(ComparativePointer):
     """Returns the sum of the values of the two given pointers"""
     def calculateValue(self):
         return self.pointer1.getValue()+self.pointer2.getValue()
+    def __str__(self) -> str:
+        return "~>("+str(self.pointer1)+" + "+str(self.pointer2)+")"
 
 class SubPointer(ComparativePointer):
     """Returns the subtraction of the values of the two given pointers"""
     def calculateValue(self):
         return self.pointer1.getValue()-self.pointer2.getValue()
+    def __str__(self) -> str:
+        return "~>("+str(self.pointer1)+" - "+str(self.pointer2)+")"
 
 class DivPointer(ComparativePointer):
     """Returns the division of the values of the two given pointers; Pointer1/Pointer2"""
     def calculateValue(self):
         return self.pointer1.getValue()/self.pointer2.getValue()
+    def __str__(self) -> str:
+        return "~>("+str(self.pointer1)+" / "+str(self.pointer2)+")"
+
+class MultPointer(ComparativePointer):
+    """Returns the multiplication of the values of the two given pointers; Pointer1*Pointer2"""
+    def calculateValue(self):
+        return self.pointer1.getValue()*self.pointer2.getValue()
+    def __str__(self) -> str:
+        return "~>("+str(self.pointer1)+" * "+str(self.pointer2)+")"
 
 #Confrontative pointers
 class MaxPointer(ComparativePointer):
@@ -426,3 +457,10 @@ class MaxPointer(ComparativePointer):
             return self.pointer1.getValue()
         else:
             return self.pointer2.getValue()
+    def __str__(self) -> str:
+        return "~>max("+str(self.pointer1)+" , "+str(self.pointer2)+")"
+
+#Functions
+def reference(objectName:str) -> GraphicalObject:
+    """Returns the object with the name corresponding to objectName"""
+    return GraphicalBase.container.object_dict[objectName]
