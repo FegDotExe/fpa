@@ -35,7 +35,7 @@ class Container():
     def loadAsset(self,thisPath):
         """Is used to get an image asset. If this is an image, a pygame.Surface object; if this is a directory, the function is re-run at the path of the function"""
         if path.isfile(thisPath):
-            return pygame.image.load(thisPath)
+            return pygame.image.load(thisPath).convert_alpha()
         elif path.isdir(thisPath):
             outputDict={}
             for element in listdir(thisPath+"/"):
@@ -46,7 +46,6 @@ class Container():
         currentDict=self.assets
         for element in assetDirList:
             currentDict=currentDict[element]
-        print(currentDict)
         return currentDict
 
 
@@ -223,7 +222,8 @@ class GraphicalRectangle(GraphicalObject):
 
 class GraphicalText(GraphicalObject):
     """A quick and easy way to display text"""
-    def __init__(self, name: str, pos_pointers, size_pointers, layer=0, clickable=False) -> None:
+    def __init__(self, name: str, pos_pointers, size_pointers, layer=0, wrap=False, clickable=False) -> None:
+        #Should look into this: https://stackoverflow.com/questions/50280553/adding-text-to-a-rectangle-that-can-be-resized-and-moved-on-pygame-without-addo
         super().__init__(name, pos_pointers, size_pointers, layer=layer, clickable=clickable)
 
 class GraphicalSprite(GraphicalObject):
