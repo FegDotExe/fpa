@@ -18,15 +18,20 @@ window=10
 updatable_cache={}
 
 #A precious example of a cached function. Will add a way to add it to a cached list so that the cache can then be emptied.
-def updatable(func,*args,**kwargs):
+def updatable(func):
     """A decorator which adds cache capabilities to a function."""
     def wrapper(*args,**kwargs):
-        key=func.__name__+str(args)+str(kwargs)
-        if key not in updatable_cache:
+        namekey=func.__name__
+        argkey=str(args)+str(kwargs)
+        if namekey not in updatable_cache:
+            updatable_cache[namekey]={}
             value=func(*args,**kwargs)
-            updatable_cache[key]=value
+            updatable_cache[namekey][argkey]=value
+        elif argkey not in updatable_cache[namekey]:
+            value=func(*args,**kwargs)
+            updatable_cache[namekey][argkey]=value
         else:
-            value=updatable_cache[key]
+            value=updatable_cache[namekey][argkey]
         return value
     return wrapper
 
@@ -49,3 +54,5 @@ print(example.x)
 print(example.y)
 
 print(recursive_fibonacci(50))
+
+print(updatable_cache)

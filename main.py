@@ -17,13 +17,13 @@ class Container():
     - updatedList: a list which holds all the objects which have been updated in an update cycle
     - layers: a dict which contains the name references of the objects, layer by layer; the layers with lower values are the ones which get drawn first"""
     def __init__(self,screen:pygame.display,dirpath) -> None:
-        self.assets={}
+        self.assets={} #A dictionary which holds all the assets
         assetPath=dirpath+"assets/textures"
         self.loadAssets(assetPath)
 
-        self.screen=screen
-        self.object_dict={}
-        GraphicalBase.container=self
+        self.screen=screen #The screen which is used to draw the objects
+        self.object_dict={} #A dictionary which holds all the objects
+        GraphicalBase.container=self #The container which is used throughout the program. MUST be initialized before any other object
         GraphicalBase.first=None
         self.updatedList=[]#The objects updated in an update cycle; is needed in order to not update the same object twice
         self.windowPointedBy=[]#List of objects which point the window and will be updated on resize
@@ -55,11 +55,6 @@ class Container():
         if len(self.windowPointedBy)>0:
             GraphicalBase.first=0
             GraphicalBase.container.updatedList=[]
-            for graphicalObject in self.windowPointedBy:
-                graphicalObject.update()
-                #print(graphicalObject)
-
-            GraphicalBase.first=None
     def draw(self) -> None:
         """Draws all the objects stored in the object_dict"""
         """for keyname in self.object_dict:
@@ -120,23 +115,31 @@ class GraphicalBase():
         self.container=None
         self.first=None
 
-class GraphicalObject(Updatable):
+class GraphicalObject():
     """Base of all graphical objects; holds its static variables in GraphicalBase"""
-    def __init__(self,name:str,pos_pointers,size_pointers,layer=0,clickable=False) -> None:
+    def __init__(self,name:str,pos_functions,size_functions,layer=0,clickable=False) -> None:
         """
         This function provides to correctly intialize a GraphicalObject so that it can later be easily used
 
         Variables:
         - name: the name given to the object, used to identify it from other functions. It currently must be specified.
         """
-        GraphicalBase.container.object_dict[name]=self
-        super().__init__({"x":pos_pointers[0],"y":pos_pointers[1],"xSize":size_pointers[0],"ySize":size_pointers[1]})
-        self.initPointers()
+        GraphicalBase.container.object_dict[name]=self #Adds the object to the container's object_dict
         #TODO: should add a random name specifier; should prob use a static variable
         self._name=name
-        self.pointedBy=[]
-        self.sizePointers=size_pointers
-        self.posPointers=pos_pointers
+
+        self._x=0
+        self._y=0
+        self._xSize=0
+        self._ySize=0
+
+        print(size_functions[0]())
+        print(size_functions[1]())
+
+        self.x_funct=pos_functions[0] if pos_functions[0]!=None else lambda:self._x
+        self.y_funct=pos_functions[1] if pos_functions[1]!=None else lambda:self._y
+        self.xSize_funct=size_functions[0] if size_functions[0]!=None else lambda:self._xSize
+        self.ySize_funct=size_functions[1] if size_functions[1]!=None else lambda:self._ySize
 
         #Adds in right layer
         if layer not in GraphicalBase.container.layers:
@@ -147,34 +150,35 @@ class GraphicalObject(Updatable):
     #Properties
     @property
     def x(self):
-        return None
+        return self.x_funct()
     @x.setter
     def x(self,value):
-        self.beginUpdate()
+        self._x=value
     @property
     def y(self):
-        return None
+        return self.y_funct()
     @y.setter
     def y(self,value):
-        self.beginUpdate()
+        self._y=value
     @property
     def xSize(self):
-        return None
+        return self.xSize_funct()
     @xSize.setter
     def xSize(self,value):
-        self.beginUpdate()
+        self._xSize=value
     @property
     def ySize(self):
-        return None
+        return self.ySize_funct()
     @ySize.setter
     def ySize(self,value):
-        self.beginUpdate()
+        self._ySize=value
 
     def draw(self):
-        """This is where the drawing action should be"""
+        """This is where the drawing action should be; needs to be overwritten"""
         pass
     
     def __str__(self):
+        #FIXME: still uses old variables
         return "<'name':'"+self._name+"', 'pos':("+str(self.x)+","+str(self.y)+"), 'size':("+str(self.xSize)+","+str(self.ySize)+"), 'pointers':{"+str(self.pointedVarDict)+"}>"
 
     #TODO: add framed movement
@@ -237,50 +241,10 @@ class GraphicalSprite(GraphicalObject):
         if len(image)==0:#Not an else so that it can be entered if load fails
             self._base_image=GraphicalBase.container.getAsset(["nullimage"])
         self._image=self._base_image
-        
-        self._coords=coords#TODO: add a way to handle coords
-
-        if size[0]!=None:
-            self.xSize=size[0]
-            init_update=False
-        if size[1]!=None:
-            self.ySize=size[1]
-            init_update=False
-
-        if init_update:
-            self.beginUpdate()#TODO: see if this is actually ok
-
-    @property
-    def x(self):
-        return self._coords[0]
-    @x.setter
-    def x(self,value):
-        self._coords=(value,self._coords[1])
-        self.beginUpdate()
-    @property
-    def y(self):
-        return self._coords[1]
-    @y.setter
-    def y(self,value):
-        self._coords=(self._coords[0],value)
-        self.beginUpdate()
-    @property
-    def xSize(self):
-        return self._image.get_width()
-    @xSize.setter
-    def xSize(self,value):
-        self._image=pygame.transform.scale(self._base_image,(value,self.ySize))
-        self.beginUpdate()
-    @property
-    def ySize(self):
-        return self._image.get_height()
-    @ySize.setter
-    def ySize(self,value):
-        self._image=pygame.transform.scale(self._base_image,(self.xSize,value))
-        self.beginUpdate()
 
     def draw(self):
-        GraphicalBase.container.screen.blit(self._image,self._coords)
+        #TODO: add a size setter
+        GraphicalBase.container.screen.blit(self._image,(self.x,self.y))
 
 class GraphicalFrame(GraphicalObject):
     """Just a placeholder meant to store values useful for other classes"""
