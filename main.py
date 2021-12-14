@@ -29,6 +29,14 @@ class Container():
         self.windowPointedBy=[]#List of objects which point the window and will be updated on resize
         self.layers={}#Dict of all layers by which objects are drawn; references are to the objects' names, so that if they are replaced there should be no trouble; every layer is a list with an int by index
     
+    #Properties
+    @property
+    def width(self) -> int:
+        return self.screen.get_width()
+    @property
+    def height(self) -> int:
+        return self.screen.get_height()
+
     def loadAssets(self,assetpath,subpath="") -> dict:
         """This function should load all assets in a folder and store them neatly in a dict, even though most of the work is done by Container.getAsset()"""
         self.assets=self.loadAsset(assetpath+subpath)
@@ -133,13 +141,12 @@ class GraphicalObject():
         self._xSize=0
         self._ySize=0
 
-        print(size_functions[0]())
-        print(size_functions[1]())
-
         self.x_funct=pos_functions[0] if pos_functions[0]!=None else lambda:self._x
         self.y_funct=pos_functions[1] if pos_functions[1]!=None else lambda:self._y
         self.xSize_funct=size_functions[0] if size_functions[0]!=None else lambda:self._xSize
         self.ySize_funct=size_functions[1] if size_functions[1]!=None else lambda:self._ySize
+
+        print(self.x_funct())
 
         #Adds in right layer
         if layer not in GraphicalBase.container.layers:
@@ -179,7 +186,10 @@ class GraphicalObject():
     
     def __str__(self):
         #FIXME: still uses old variables
-        return "<'name':'"+self._name+"', 'pos':("+str(self.x)+","+str(self.y)+"), 'size':("+str(self.xSize)+","+str(self.ySize)+"), 'pointers':{"+str(self.pointedVarDict)+"}>"
+        return "<'name':'"+self._name+"', 'pos':("+str(self.x)+","+str(self.y)+"), 'size':("+str(self.xSize)+","+str(self.ySize)+"), 'pos_functions':({posf1},{posf2})>".format(posf1=self.x_funct,posf2=self.y_funct)
+
+    def __repr__(self) -> str:
+        return self.__str__()
 
     #TODO: add framed movement
 
@@ -242,8 +252,34 @@ class GraphicalSprite(GraphicalObject):
             self._base_image=GraphicalBase.container.getAsset(["nullimage"])
         self._image=self._base_image
 
+        self.dimension_cache={}
+
+        self.size=(self.xSize,self.ySize)
+
+    def dimensionalProperty(self,func,change_func):
+        def wrapper(*args,**kwargs):
+            changed=False
+            value=func(*args,**kwargs)
+            if func.__name__ not in self.dimension_cache:
+                self.dimension_cache[func.__name__]=value
+                changed=True
+            else:
+                if self.dimension_cache[func.__name__]!=value:
+                    self.dimension_cache[func.__name__]=value
+                    changed=True
+            if changed:
+                self._image=change_func(value)
+            return self.dimension_cache[func.__name__]
+        return wrapper
+
+    @property
+    def xSize(self):
+        value= self.dimensionalProperty(self.xSize_funct,lambda x: pygame.transform.scale(self._base_image,(x,self.ySize)))()
+        return value
+
     def draw(self):
         #TODO: add a size setter
+        self.size=(self.xSize,self.ySize)
         GraphicalBase.container.screen.blit(self._image,(self.x,self.y))
 
 class GraphicalFrame(GraphicalObject):

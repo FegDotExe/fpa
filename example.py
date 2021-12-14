@@ -5,7 +5,6 @@ class ExampleObject():
         self.y_funct=pos_funct[1]
     
     @property
-    @cache#See if the cache is clearable
     def x(self) -> int:
         return self.x_funct()
     @property
