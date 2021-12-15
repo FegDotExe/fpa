@@ -2,6 +2,7 @@ import pygame
 import os
 import main as fpa
 from typing import Final
+from math import floor
 
 pygame.init()
 
@@ -11,7 +12,7 @@ container=fpa.Container(pygame.display.set_mode((800,600),pygame.RESIZABLE),DIRE
 
 const_x=0
 const_y=0
-size_const=container.width/20
+size_const=floor(container.width/20)
 
 #testobj=fpa.GraphicalObject("nome",(lambda:0,lambda:10),(lambda:100,lambda:100))
 #testobj2=fpa.GraphicalSprite("boh",pos_pointers=(lambda:x,lambda:0),size_pointers=(lambda:100,lambda:100))
@@ -19,9 +20,11 @@ size_const=container.width/20
 def gridBuilder(xSize,ySize):
     for x in range(xSize):
         for y in range(ySize):
-            fpa.GraphicalSprite("field"+str(x)+","+str(y),size_pointers=(lambda: size_const,lambda: size_const),pos_pointers=(lambda x=x: const_x+(x*size_const),lambda y=y: const_y+(y*size_const)))#Super cool: this is how to make references to variables which don't change in lambda functions' context.
+            fpa.GraphicalSprite("field"+str(x)+","+str(y),size_functions=(lambda: size_const,lambda: size_const*2),pos_functions=(lambda x=x: const_x+(x*size_const),lambda y=y: const_y+(y*size_const)))#Super cool: this is how to make references to variables which don't change in lambda functions' context.
 
-gridBuilder(20,20)
+#gridBuilder(2,1)
+
+fpa.GraphicalRectangle("test",pos_functions=(lambda: 100,lambda: 100),size_functions=(lambda: 100,lambda: 150),color=(255,255,0))
 
 #print(fpa.GraphicalBase.container.object_dict)
 
@@ -51,7 +54,7 @@ while running:
                 const_y+=10
         elif event.type == pygame.VIDEORESIZE:
             container.resize(event.size[0],event.size[1])
-            size_const=container.width/20
+            size_const=floor(container.width/20)
     container.screen.fill((0,144,255))
 
     container.draw()
