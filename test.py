@@ -20,11 +20,11 @@ size_const=floor(container.width/20)
 def gridBuilder(xSize,ySize):
     for x in range(xSize):
         for y in range(ySize):
-            fpa.GraphicalSprite("field"+str(x)+","+str(y),size_functions=(lambda: size_const,lambda: size_const*2),pos_functions=(lambda x=x: const_x+(x*size_const),lambda y=y: const_y+(y*size_const)))#Super cool: this is how to make references to variables which don't change in lambda functions' context.
+            fpa.GraphicalSprite("field"+str(x)+","+str(y),size_functions=(lambda: size_const,lambda: size_const),pos_functions=(lambda x=x: const_x+(x*size_const),lambda y=y: const_y+(y*size_const)))#Super cool: this is how to make references to variables which don't change in lambda functions' context.
 
-#gridBuilder(2,1)
+gridBuilder(5,5)
 
-fpa.GraphicalRectangle("test",pos_functions=(lambda: 100,lambda: 100),size_functions=(lambda: 100,lambda: 150),color=(255,255,0))
+fpa.GraphicalRectangle("test",pos_functions=(lambda: 100,lambda: 100),size_functions=(lambda: 100,lambda: 150),color=(255,255,0),layer=1)
 
 #print(fpa.GraphicalBase.container.object_dict)
 

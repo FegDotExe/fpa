@@ -118,7 +118,7 @@ class GraphicalObject():
         
         Variables:
         - func: the function that is used to get the value of the property
-        - change_func: the function that is used to change the value of the image. It takes one argument and it should look like this: lambda x: pygame.transform.scale(self._base_image,(x,self.ySize))"""
+        - change_func: the function used to change pylib's wrapped object's value. Takes the result of func as an argument"""
         def wrapper(*args,**kwargs):
             changed=False
             value=func(*args,**kwargs)
@@ -166,7 +166,7 @@ class GraphicalObject():
     
     def __str__(self):
         #FIXME: still uses old variables
-        return "<'name':'"+self._name+"', 'pos':("+str(self.x)+","+str(self.y)+"), 'size':("+str(self.xSize)+","+str(self.ySize)+"), 'pos_functions':({posf1},{posf2})>".format(posf1=self.x_funct,posf2=self.y_funct)
+        return "<'name':'"+self._name+"', 'pos':("+str(self.x)+","+str(self.y)+"), 'size':("+str(self.xSize)+","+str(self.ySize)+"), 'pos_functions':({posf1},{posf2}), 'size_functions':({sizef1},{sizef2})>".format(posf1=self.x_funct.__name__,posf2=self.y_funct.__name__,sizef1=self.xSize_funct.__name__,sizef2=self.ySize_funct.__name__)
 
     def __repr__(self) -> str:
         return self.__str__()
@@ -227,35 +227,18 @@ class GraphicalSprite(GraphicalObject):
 
         self.size=(self.xSize,self.ySize)
 
-    def dimensionalProperty(self,func,change_func):
-        """A decorator for dimensional properties, such as xSize and ySize.
-        
-        Variables:
-        - func: the function that is used to get the value of the property
-        - change_func: the function that is used to change the value of the image. It takes one argument and it should look like this: lambda x: pygame.transform.scale(self._base_image,(x,self.ySize))"""
-        def wrapper(*args,**kwargs):
-            changed=False
-            value=func(*args,**kwargs)
-            if func not in self.dimension_cache:
-                self.dimension_cache[func]=value
-                changed=True
-            else:
-                if self.dimension_cache[func]!=value:
-                    self.dimension_cache[func]=value
-                    changed=True
-            if changed:
-                self._image=change_func(value)
-            return self.dimension_cache[func]
-        return wrapper
-
     #Properties
     @property
     def xSize(self):
-        value=self.dimensionalProperty(self.xSize_funct,lambda x: pygame.transform.scale(self._base_image,(x,self.ySize)))()
+        def change_image(xSize):
+            self._image=pygame.transform.scale(self._base_image,(xSize,self.ySize))
+        value=self.dimensionalProperty(self.xSize_funct,change_image)()
         return value
     @property
     def ySize(self):
-        value=self.dimensionalProperty(self.ySize_funct,lambda y: pygame.transform.scale(self._base_image,(self.xSize,y)))()
+        def change_image(ySize):
+            self._image=pygame.transform.scale(self._base_image,(self.xSize,ySize))
+        value=self.dimensionalProperty(self.ySize_funct,change_image)()
         return value
 
     def draw(self):
