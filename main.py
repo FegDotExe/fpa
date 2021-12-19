@@ -208,19 +208,75 @@ class GraphicalRectangle(GraphicalObject):
 
 class GraphicalText(GraphicalObject):
     """A quick and easy way to display text"""
-    def __init__(self, name: str, pos_pointers, size_pointers, text="", font="", fontSizeFunct=None, layer=0, clickable=False) -> None:
+    def __init__(self, name: str, pos_pointers, size_pointers, text=lambda:"", font="", fontSizeFunct=lambda:32, layer=0,color=lambda:(0,0,0), clickable=False) -> None:
         #Should look into this: https://stackoverflow.com/questions/50280553/adding-text-to-a-rectangle-that-can-be-resized-and-moved-on-pygame-without-addo
         super().__init__(name, pos_pointers, size_pointers, layer=layer, clickable=clickable)
-        self._text=text
-        self._font=font
+        self._text=None
+        self.text_function=text
+        self._font_name=font
+        self._font=None
+        self.font_height=None
         self.font_function=fontSizeFunct
 
+        self.color_function=color
+        self._color=None
+
         self.surfaces=[]
-        self.createSurface()
+
+        self.created_surface=False #Very important variable; if it's false, the surface will be recreated in a certain frame refresh. Should alway be reset to False.
 
     @property
     def font(self):
-        return pygame.font.Font(self._font,self.font_function())#TODO: add cache for this, maybe make a separate function in order to make this better
+        """A rendered font object"""
+        def change_font(fontSize):
+            self._font=pygame.font.Font(self._font_name,fontSize)
+            self.font_height=self._font.get_linesize()
+            if not self.created_surface:
+                self.created_surface=True
+                self.createSurface()
+                self.created_surface=False
+        self.dimensionalProperty(self.font_function,change_font)()
+        return self._font
+    @property
+    def xSize(self):
+        def change_rect(xSize):
+            self._xSize=xSize
+            if not self.created_surface:
+                self.created_surface=True
+                self.createSurface()
+                self.created_surface=False
+        self.dimensionalProperty(self.xSize_funct,change_rect)()
+        return self._xSize
+    @property
+    def ySize(self):
+        def change_rect(ySize):
+            self._ySize=ySize
+            if not self.created_surface:
+                self.created_surface=True
+                self.createSurface()
+                self.created_surface=False
+        self.dimensionalProperty(self.ySize_funct,change_rect)()
+        return self._ySize
+    @property
+    def color(self):
+        def change_text(color):
+            self._color=color
+            if not self.created_surface:
+                self.created_surface=True
+                self.createSurface()
+                self.created_surface=False
+        self.dimensionalProperty(self.color_function,change_text)()
+        return self._color
+    @property
+    def text(self):
+        def change_text(text):
+            self._text=text
+            if not self.created_surface:
+                self.created_surface=True
+                self.createSurface()
+                self.created_surface=False
+        self.dimensionalProperty(self.text_function,change_text)()
+        return self._text
 
     def createSurface(self):
         """Creates the correct text surface for the given text"""
@@ -229,20 +285,22 @@ class GraphicalText(GraphicalObject):
         line=[]
         space_width=self.font.size(" ")[0]
 
-        for word in self._text.split(" "):
+        for word in self.text.split():
             line_width+=self.font.size(word)[0]+space_width
             if line_width>self.xSize:
-                self.surfaces.append(self.font.render(" ".join(line),True,(0,0,0)))#TODO: add a way to change color
+                self.surfaces.append(self.font.render(" ".join(line),True,self.color))
                 line=[]
                 line_width=self.font.size(word)[0]+space_width
             line.append(word)
-        self.surfaces.append(self.font.render(" ".join(line),True,(0,0,0)))#TODO: add a way to change color
+        self.surfaces.append(self.font.render(" ".join(line),True,self.color))
+        print(self.surfaces)
 
     def draw(self):
+        variables=(self.font,self.xSize,self.ySize) #Update variables
         for y, surf in enumerate(self.surfaces):
-            if y*self.font.get_linesize()+self.font.get_linesize()>self.ySize:
+            if y*self.font_height+self.font_height>self.ySize:
                 break
-            GraphicalBase.container.screen.blit(surf,(self.x,self.y+y*self.font.get_linesize()))
+            GraphicalBase.container.screen.blit(surf,(self.x,self.y+y*self.font_height))
 
 
 class GraphicalSprite(GraphicalObject):
