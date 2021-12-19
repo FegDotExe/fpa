@@ -64,6 +64,7 @@ class Container():
         """Draws all the objects stored in the object_dict"""
         """for keyname in self.object_dict:
             self.object_dict[keyname].draw()"""
+        #FIXME: should reorder the keys in the dict and then use those, in order to save time
         i=0
         j=0
         while i<len(self.layers):
@@ -207,9 +208,42 @@ class GraphicalRectangle(GraphicalObject):
 
 class GraphicalText(GraphicalObject):
     """A quick and easy way to display text"""
-    def __init__(self, name: str, pos_pointers, size_pointers, layer=0, wrap=False, clickable=False) -> None:
+    def __init__(self, name: str, pos_pointers, size_pointers, text="", font="", fontSizeFunct=None, layer=0, clickable=False) -> None:
         #Should look into this: https://stackoverflow.com/questions/50280553/adding-text-to-a-rectangle-that-can-be-resized-and-moved-on-pygame-without-addo
         super().__init__(name, pos_pointers, size_pointers, layer=layer, clickable=clickable)
+        self._text=text
+        self._font=font
+        self.font_function=fontSizeFunct
+
+        self.surfaces=[]
+        self.createSurface()
+
+    @property
+    def font(self):
+        return pygame.font.Font(self._font,self.font_function())#TODO: add cache for this, maybe make a separate function in order to make this better
+
+    def createSurface(self):
+        """Creates the correct text surface for the given text"""
+        self.surfaces=[]
+        line_width=0
+        line=[]
+        space_width=self.font.size(" ")[0]
+
+        for word in self._text.split(" "):
+            line_width+=self.font.size(word)[0]+space_width
+            if line_width>self.xSize:
+                self.surfaces.append(self.font.render(" ".join(line),True,(0,0,0)))#TODO: add a way to change color
+                line=[]
+                line_width=self.font.size(word)[0]+space_width
+            line.append(word)
+        self.surfaces.append(self.font.render(" ".join(line),True,(0,0,0)))#TODO: add a way to change color
+
+    def draw(self):
+        for y, surf in enumerate(self.surfaces):
+            if y*self.font.get_linesize()+self.font.get_linesize()>self.ySize:
+                break
+            GraphicalBase.container.screen.blit(surf,(self.x,self.y+y*self.font.get_linesize()))
+
 
 class GraphicalSprite(GraphicalObject):
     def __init__(self, name: str, image=[],layer=0,pos_functions=(None,None),size_functions=(None,None)) -> None:
