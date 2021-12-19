@@ -74,24 +74,26 @@ class Container():
                 i+=1
             j+=1
 
-
 #Graphical classes
 class GraphicalBase():
     """The base which holds static variables for graphical objects"""
+    nameId=0
     container=Container
     def __init__(self) -> None:
         self.container=None
-        self.first=None
 
 class GraphicalObject():
     """Base of all graphical objects; holds its static variables in GraphicalBase"""
-    def __init__(self,name:str,pos_functions,size_functions,layer=0,clickable=False) -> None:
+    def __init__(self,pos_functions,size_functions,name:str="",layer=0,clickable=False) -> None:
         """
         This function provides to correctly intialize a GraphicalObject so that it can later be easily used
 
         Variables:
         - name: the name given to the object, used to identify it from other functions. It currently must be specified.
         """
+        if name=="":
+            name=str(GraphicalBase.nameId)
+            GraphicalBase.nameId+=1
         GraphicalBase.container.object_dict[name]=self #Adds the object to the container's object_dict
         #TODO: should add a random name specifier; should prob use a static variable
         self._name=name
@@ -175,8 +177,8 @@ class GraphicalObject():
     #TODO: add framed movement
 
 class GraphicalRectangle(GraphicalObject):
-    def __init__(self, name: str, rect=pygame.Rect((0,0),(100,100)),layer=0,color=(0,0,0),pos_functions=(None,None),size_functions=(None,None)) -> None:
-        super().__init__(name,pos_functions,size_functions,layer=layer)
+    def __init__(self, name: str="", rect=pygame.Rect((0,0),(100,100)),layer=0,color=(0,0,0),pos_functions=(None,None),size_functions=(None,None)) -> None:
+        super().__init__(pos_functions,size_functions,layer=layer,name=name)
         self._rect=rect
         self._color=color
         self.dimension_cache={}
@@ -208,9 +210,9 @@ class GraphicalRectangle(GraphicalObject):
 
 class GraphicalText(GraphicalObject):
     """A quick and easy way to display text"""
-    def __init__(self, name: str, pos_pointers, size_pointers, text=lambda:"", font="", fontSizeFunct=lambda:32, layer=0,color=lambda:(0,0,0), clickable=False) -> None:
+    def __init__(self, pos_functions, size_functions, name: str="", text=lambda:"", font="", fontSizeFunct=lambda:32, layer=0,color=lambda:(0,0,0), clickable=False) -> None:
         #Should look into this: https://stackoverflow.com/questions/50280553/adding-text-to-a-rectangle-that-can-be-resized-and-moved-on-pygame-without-addo
-        super().__init__(name, pos_pointers, size_pointers, layer=layer, clickable=clickable)
+        super().__init__(pos_functions, size_functions, name=name, layer=layer, clickable=clickable)
         self._text=None
         self.text_function=text
         self._font_name=font
@@ -288,24 +290,22 @@ class GraphicalText(GraphicalObject):
         for word in self.text.split():
             line_width+=self.font.size(word)[0]+space_width
             if line_width>self.xSize:
-                self.surfaces.append(self.font.render(" ".join(line),True,self.color))
+                self.surfaces.append(self.font.render(" ".join(line),True,self.color).convert_alpha())
                 line=[]
                 line_width=self.font.size(word)[0]+space_width
             line.append(word)
-        self.surfaces.append(self.font.render(" ".join(line),True,self.color))
-        print(self.surfaces)
+        self.surfaces.append(self.font.render(" ".join(line),True,self.color).convert_alpha())
 
     def draw(self):
-        variables=(self.font,self.xSize,self.ySize) #Update variables
+        variables=(self.font,self.xSize,self.ySize,self.color,self.text) #Update variables
         for y, surf in enumerate(self.surfaces):
             if y*self.font_height+self.font_height>self.ySize:
                 break
             GraphicalBase.container.screen.blit(surf,(self.x,self.y+y*self.font_height))
 
-
 class GraphicalSprite(GraphicalObject):
-    def __init__(self, name: str, image=[],layer=0,pos_functions=(None,None),size_functions=(None,None)) -> None:
-        super().__init__(name,pos_functions,size_functions,layer=layer)
+    def __init__(self, name="", image=[],layer=0,alpha_function=lambda:255,pos_functions=(None,None),size_functions=(None,None)) -> None:
+        super().__init__(pos_functions,size_functions,layer=layer,name=name)
         if len(image)>0:
             try:
                 self._base_image=GraphicalBase.container.getAsset(image)#Stores the base image; is used in order to prevent messiness when rescaling
@@ -315,27 +315,40 @@ class GraphicalSprite(GraphicalObject):
             self._base_image=GraphicalBase.container.getAsset(["nullimage"])
         self._image=self._base_image
 
+        self.alpha_function=alpha_function
+
         self.dimension_cache={}
 
         self.size=(self.xSize,self.ySize)
+
+    def transform_image(self,xSize,ySize,alpha):
+        self._image=pygame.transform.scale(self._base_image,(xSize,ySize))
+        self._image.fill((255,255,255,alpha),None,pygame.BLEND_RGBA_MULT)
 
     #Properties
     @property
     def xSize(self):
         def change_image(xSize):
-            self._image=pygame.transform.scale(self._base_image,(xSize,self.ySize))
+            self.transform_image(xSize,self.ySize,self.alpha)
         value=self.dimensionalProperty(self.xSize_funct,change_image)()
         return value
     @property
     def ySize(self):
         def change_image(ySize):
-            self._image=pygame.transform.scale(self._base_image,(self.xSize,ySize))
+            self.transform_image(self.xSize,ySize,self.alpha)
         value=self.dimensionalProperty(self.ySize_funct,change_image)()
+        return value
+
+    @property
+    def alpha(self):
+        def change_image(alpha):
+            self.transform_image(self.xSize,self.ySize,alpha)
+        value=self.dimensionalProperty(self.alpha_function,change_image)()
         return value
 
     def draw(self):
         #TODO: add a size setter
-        self.size=(self.xSize,self.ySize)
+        self.size=(self.xSize,self.ySize,self.alpha)
         GraphicalBase.container.screen.blit(self._image,(self.x,self.y))
 
 #Functions
