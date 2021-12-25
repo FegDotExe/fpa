@@ -2,6 +2,8 @@ from posixpath import dirname
 import pygame
 from os import path,listdir
 
+#https://stackoverflow.com/questions/46965968/is-there-a-faster-way-to-blit-many-images-on-pygame
+
 class Container():
     """
     Container
@@ -16,18 +18,20 @@ class Container():
     - object_dict: a dict which contains all of the GraphicalObject classes, linked with their names; here's an example: {"player":<GraphicalSprite>}; if an object with an already existing name is created, the oldest gets overwritten
     - updatedList: a list which holds all the objects which have been updated in an update cycle
     - layers: a dict which contains the name references of the objects, layer by layer; the layers with lower values are the ones which get drawn first, in other words, the layers with higher values are more likely to be visible"""
-    def __init__(self,screen:pygame.display,dirpath) -> None:
+    def __init__(self,screen:pygame.display,dirpath,resize_function) -> None:
         self.assets={} #A dictionary which holds all the assets
         assetPath=dirpath+"assets/textures"
         self.loadAssets(assetPath)
 
         self.screen=screen #The screen which is used to draw the objects
+        GraphicalBase.decorations=Decorations() #A class which contains decoration functions
         self.object_dict={} #A dictionary which holds all the objects
         GraphicalBase.container=self #The container which is used throughout the program. MUST be initialized before any other object
         self.updatedList=[] #The objects updated in an update cycle; is needed in order to not update the same object twice
         self.windowPointedBy=[] #List of objects which point the window and will be updated on resize
         self.layers={} #Dict of all layers by which objects are drawn; references are to the objects' names, so that if they are replaced there should be no trouble; every layer is a list with an int by index
-    
+        self.resize_function=resize_function
+
     #Properties
     @property
     def width(self) -> int:
@@ -60,6 +64,7 @@ class Container():
     def resize(self,width:int,height:int) -> None:
         """A function which should be run when the video window is resized"""
         self.screen=pygame.display.set_mode((width,height),pygame.RESIZABLE)
+        self.resize_function()
     def draw(self) -> None:
         """Draws all the objects stored in the object_dict"""
         """for keyname in self.object_dict:
@@ -74,17 +79,69 @@ class Container():
                 i+=1
             j+=1
 
+class Decorations():
+    class DimensionalProperty():
+        def __init__(self,fget,fset=None) -> None:
+            self.fget=fget
+            self.fset=fset
+            self.functions={}
+        def __get__(self,obj,objtype=None):
+            return self.fget(obj)
+        def __set__(self,obj,value):
+            self.fset(obj,value)
+            for function in self.functions:
+                function(*self.functions[function])
+
+        def setter(self,fset):
+            return type(self)(self.fget,fset)
+
+    def get_property_class(self,name):
+        """Returns a property class"""
+        if name not in type(self).__dict__:
+            raise AttributeError("The property \"{}\" is not defined".format(name))
+        return type(self).__dict__[name]
+
+    def add_function(self,property_name,function,args=()):
+        """Add a function which will be executed when the property is set"""
+        property=self.get_property_class(property_name)
+        property.functions[function]=args
+
+    def add_property(self,name,fget=None,fset=None):
+        """Add a property to the class. This function also creates a variable for the property, named '<name>_var', <name> being the name argument"""
+        setattr(self,name+"_var",0)
+        def internal_fget(self):
+            return getattr(self,name+"_var")
+        def internal_fset(self,value):
+            setattr(self,name+"_var",value)
+        
+        out_fget=internal_fget if fget is None else fget
+        out_fset=internal_fset if fset is None else fset
+        
+        setattr(type(self),name,Decorations.DimensionalProperty(out_fget,out_fset))
+
+    def remove_function(self,property_name,function):
+        """Remove a function from a property"""
+        property=self.get_property_class(property_name)
+        if function in property.functions:
+            del property.functions[function]
+
+    def remove_property(self,name):
+        """Remove a property from the class"""
+        delattr(self,name+"_var")
+        delattr(type(self),name)
+
 #Graphical classes
 class GraphicalBase():
     """The base which holds static variables for graphical objects"""
     nameId=0
     container=Container
+    decorations=Decorations
     def __init__(self) -> None:
         self.container=None
 
 class GraphicalObject():
     """Base of all graphical objects; holds its static variables in GraphicalBase"""
-    def __init__(self,pos_functions,size_functions,name:str="",layer=0,clickable=False) -> None:
+    def __init__(self,pos_functions,size_functions,name:str="",layer=0,size_properties=[],clickable=False) -> None:
         """
         This function provides to correctly intialize a GraphicalObject so that it can later be easily used
 
@@ -107,6 +164,9 @@ class GraphicalObject():
         self.y_funct=pos_functions[1] if pos_functions[1]!=None else lambda:self._y
         self.xSize_funct=size_functions[0] if size_functions[0]!=None else lambda:self._xSize
         self.ySize_funct=size_functions[1] if size_functions[1]!=None else lambda:self._ySize
+
+        for element in size_properties:
+            GraphicalBase.decorations.add_function(element,self.update_size)
 
         self.dimension_cache={}
 
@@ -167,6 +227,12 @@ class GraphicalObject():
         """This is where the drawing action should be; needs to be overwritten"""
         pass
     
+    def update(self):
+        """The function used to update the object from a graphical standpoint; updates both position and size; needs to be overwritten"""
+        pass
+    def update_size(self):
+        pass
+
     def __str__(self):
         #FIXME: still uses old variables
         return "<'name':'"+self._name+"', 'pos':("+str(self.x)+","+str(self.y)+"), 'size':("+str(self.xSize)+","+str(self.ySize)+"), 'pos_functions':({posf1},{posf2}), 'size_functions':({sizef1},{sizef2})>".format(posf1=self.x_funct.__name__,posf2=self.y_funct.__name__,sizef1=self.xSize_funct.__name__,sizef2=self.ySize_funct.__name__)
@@ -304,8 +370,8 @@ class GraphicalText(GraphicalObject):
             GraphicalBase.container.screen.blit(surf,(self.x,self.y+y*self.font_height))
 
 class GraphicalSprite(GraphicalObject):
-    def __init__(self, name="", image=[],layer=0,alpha_function=lambda:255,pos_functions=(None,None),size_functions=(None,None)) -> None:
-        super().__init__(pos_functions,size_functions,layer=layer,name=name)
+    def __init__(self, name="", image=[],size_properties=[],layer=0,alpha_function=lambda:255,pos_functions=(None,None),size_functions=(None,None)) -> None:
+        super().__init__(pos_functions,size_functions,layer=layer,name=name,size_properties=size_properties)
         if len(image)>0:
             try:
                 self._base_image=GraphicalBase.container.getAsset(image)#Stores the base image; is used in order to prevent messiness when rescaling
@@ -327,28 +393,16 @@ class GraphicalSprite(GraphicalObject):
 
     #Properties
     @property
-    def xSize(self):
-        def change_image(xSize):
-            self.transform_image(xSize,self.ySize,self.alpha)
-        value=self.dimensionalProperty(self.xSize_funct,change_image)()
-        return value
-    @property
-    def ySize(self):
-        def change_image(ySize):
-            self.transform_image(self.xSize,ySize,self.alpha)
-        value=self.dimensionalProperty(self.ySize_funct,change_image)()
-        return value
-
-    @property
     def alpha(self):
-        def change_image(alpha):
-            self.transform_image(self.xSize,self.ySize,alpha)
-        value=self.dimensionalProperty(self.alpha_function,change_image)()
-        return value
+        return self.alpha_function()
+
+    def update_size(self):
+        self.update()
+    def update(self):
+        self.transform_image(self.xSize,self.ySize,self.alpha)
 
     def draw(self):
         #TODO: add a size setter
-        self.size=(self.xSize,self.ySize,self.alpha)
         GraphicalBase.container.screen.blit(self._image,(self.x,self.y))
 
 #Functions
