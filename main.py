@@ -2,6 +2,7 @@ from posixpath import dirname
 import pygame
 from os import path,listdir
 
+#TODO: add intermediate blitting
 #https://stackoverflow.com/questions/46965968/is-there-a-faster-way-to-blit-many-images-on-pygame
 
 class Container():
@@ -70,27 +71,34 @@ class Container():
         """for keyname in self.object_dict:
             self.object_dict[keyname].draw()"""
         #FIXME: should reorder the keys in the dict and then use those, in order to save time
-        i=0
+        for i in sorted(self.layers.keys()):
+            for element in self.layers[i]:
+                self.object_dict[element].draw()
+        """i=0
         j=0
         while i<len(self.layers):
             if j in self.layers:
                 for keyname in self.layers[j]:
                     self.object_dict[keyname].draw()
                 i+=1
-            j+=1
+            j+=1"""
 
 class Decorations():
+    """A class which enables the use of custom properties, used to update graphical objects only when needed"""
     class DimensionalProperty():
         def __init__(self,fget,fset=None) -> None:
             self.fget=fget
             self.fset=fset
             self.functions={}
+            self.previous=None
         def __get__(self,obj,objtype=None):
             return self.fget(obj)
         def __set__(self,obj,value):
-            self.fset(obj,value)
-            for function in self.functions:
-                function(*self.functions[function])
+            if self.previous!=value:
+                self.previous=value
+                self.fset(obj,value)
+                for function in self.functions:
+                    function(*self.functions[function])
 
         def setter(self,fset):
             return type(self)(self.fget,fset)
@@ -243,6 +251,7 @@ class GraphicalObject():
     #TODO: add framed movement
 
 class GraphicalRectangle(GraphicalObject):
+    #TODO: change implementation to use decorators
     def __init__(self, name: str="", rect=pygame.Rect((0,0),(100,100)),layer=0,color=(0,0,0),pos_functions=(None,None),size_functions=(None,None)) -> None:
         super().__init__(pos_functions,size_functions,layer=layer,name=name)
         self._rect=rect
@@ -276,79 +285,48 @@ class GraphicalRectangle(GraphicalObject):
 
 class GraphicalText(GraphicalObject):
     """A quick and easy way to display text"""
-    def __init__(self, pos_functions, size_functions, name: str="", text=lambda:"", font="", fontSizeFunct=lambda:32, layer=0,color=lambda:(0,0,0), clickable=False) -> None:
+    def __init__(self, pos_functions=(None,None), size_functions=(None,None),size_properties=[], text_properties=[], font_properties=[], color_properties=[], alpha_properties=[], name: str="", text_function=lambda:"", font_path="", alpha_function=lambda:255, font_size_function=lambda:32, layer=0,color_function=lambda:(0,0,0), clickable=False) -> None:
         #Should look into this: https://stackoverflow.com/questions/50280553/adding-text-to-a-rectangle-that-can-be-resized-and-moved-on-pygame-without-addo
-        super().__init__(pos_functions, size_functions, name=name, layer=layer, clickable=clickable)
-        self._text=None
-        self.text_function=text
-        self._font_name=font
-        self._font=None
-        self.font_height=None
-        self.font_function=fontSizeFunct
+        super().__init__(pos_functions, size_functions, name=name, layer=layer, clickable=clickable,size_properties=size_properties)
+        self.text_function=text_function
+        self.font_function=font_size_function
+        self._font_name=font_path
+        self.font=None #A pygame font object. Is created and updated in update_font
+        self.font_height=None #The height of the font; used to calculate the size of the text box
 
-        self.color_function=color
-        self._color=None
+        self.changed_surface=False
 
-        self.surfaces=[]
+        self.alpha_function=alpha_function
+        self.color_function=color_function
 
-        self.created_surface=False #Very important variable; if it's false, the surface will be recreated in a certain frame refresh. Should alway be reset to False.
+        self.base_surfaces=[] #List of surfaces which are used to change the graphical properties
+        self.surfaces=[] #List of the surfaces which are actually displayed
 
-    @property
-    def font(self):
-        """A rendered font object"""
-        def change_font(fontSize):
-            self._font=pygame.font.Font(self._font_name,fontSize)
-            self.font_height=self._font.get_linesize()
-            if not self.created_surface:
-                self.created_surface=True
-                self.createSurface()
-                self.created_surface=False
-        self.dimensionalProperty(self.font_function,change_font)()
-        return self._font
-    @property
-    def xSize(self):
-        def change_rect(xSize):
-            self._xSize=xSize
-            if not self.created_surface:
-                self.created_surface=True
-                self.createSurface()
-                self.created_surface=False
-        self.dimensionalProperty(self.xSize_funct,change_rect)()
-        return self._xSize
-    @property
-    def ySize(self):
-        def change_rect(ySize):
-            self._ySize=ySize
-            if not self.created_surface:
-                self.created_surface=True
-                self.createSurface()
-                self.created_surface=False
-        self.dimensionalProperty(self.ySize_funct,change_rect)()
-        return self._ySize
-    @property
-    def color(self):
-        def change_text(color):
-            self._color=color
-            if not self.created_surface:
-                self.created_surface=True
-                self.createSurface()
-                self.created_surface=False
-        self.dimensionalProperty(self.color_function,change_text)()
-        return self._color
+        for element in font_properties:
+            GraphicalBase.decorations.add_function(element,self.update_font)
+        for element in text_properties:
+            GraphicalBase.decorations.add_function(element,self.update_text)
+        for element in color_properties:
+            GraphicalBase.decorations.add_function(element,self.update_color)
+        for element in alpha_properties:
+            GraphicalBase.decorations.add_function(element,self.update_alpha)
+
+        self.update_font()
+        #TODO: should probably add a first create surface as init
+
     @property
     def text(self):
-        def change_text(text):
-            self._text=text
-            if not self.created_surface:
-                self.created_surface=True
-                self.createSurface()
-                self.created_surface=False
-        self.dimensionalProperty(self.text_function,change_text)()
-        return self._text
+        return self.text_function()
+    @property
+    def color(self):
+        return self.color_function()
+    @property
+    def alpha(self):
+        return self.alpha_function()
 
     def createSurface(self):
         """Creates the correct text surface for the given text"""
-        self.surfaces=[]
+        self.base_surfaces=[]
         line_width=0
         line=[]
         space_width=self.font.size(" ")[0]
@@ -356,14 +334,39 @@ class GraphicalText(GraphicalObject):
         for word in self.text.split():
             line_width+=self.font.size(word)[0]+space_width
             if line_width>self.xSize:
-                self.surfaces.append(self.font.render(" ".join(line),True,self.color).convert_alpha())
+                self.base_surfaces.append(self.font.render(" ".join(line),True,self.color).convert_alpha())
                 line=[]
                 line_width=self.font.size(word)[0]+space_width
             line.append(word)
-        self.surfaces.append(self.font.render(" ".join(line),True,self.color).convert_alpha())
+        self.base_surfaces.append(self.font.render(" ".join(line),True,self.color).convert_alpha())
+        self.surfaces=self.base_surfaces.copy()
+        self.update_alpha()
+
+    def update_font(self):
+        """Updates the font"""
+        self.font=pygame.font.Font(self._font_name,self.font_function())
+        self.font_height=self.font.get_linesize()
+        self.changed_surface=True
+    def update_text(self):
+        """Updates the text contained in the object"""
+        self.changed_surface=True
+    def update_color(self):
+        """Updates the color of the text"""
+        self.changed_surface=True
+    def update_size(self):
+        """Updates the size of the text"""
+        self.changed_surface=True
+    def update_alpha(self):
+        """Updates the alpha of the text"""
+        for i in range (len(self.base_surfaces)):
+            surface=self.base_surfaces[i].copy()
+            surface.fill(self.color+(self.alpha,),None,pygame.BLEND_RGBA_MULT)
+            self.surfaces[i]=surface
 
     def draw(self):
-        variables=(self.font,self.xSize,self.ySize,self.color,self.text) #Update variables
+        if self.changed_surface:
+            self.createSurface()
+            self.changed_surface=False
         for y, surf in enumerate(self.surfaces):
             if y*self.font_height+self.font_height>self.ySize:
                 break
@@ -386,6 +389,8 @@ class GraphicalSprite(GraphicalObject):
         self.dimension_cache={}
 
         self.size=(self.xSize,self.ySize)
+
+        self.update_size()
 
     def transform_image(self,xSize,ySize,alpha):
         self._image=pygame.transform.scale(self._base_image,(xSize,ySize))
