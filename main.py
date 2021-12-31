@@ -71,9 +71,15 @@ class Container():
         """for keyname in self.object_dict:
             self.object_dict[keyname].draw()"""
         #FIXME: should reorder the keys in the dict and then use those, in order to save time
+        surfaces=[]
         for i in sorted(self.layers.keys()):
             for element in self.layers[i]:
-                self.object_dict[element].draw()
+                if type(element)==GraphicalSurface:
+                    surfaces.append(element)
+                else:
+                    self.object_dict[element].draw()
+        for element in surfaces:
+            element.draw()
         """i=0
         j=0
         while i<len(self.layers):
@@ -149,7 +155,7 @@ class GraphicalBase():
 
 class GraphicalObject():
     """Base of all graphical objects; holds its static variables in GraphicalBase"""
-    def __init__(self,pos_functions,size_functions,name:str="",layer=0,size_properties=[],clickable=False) -> None:
+    def __init__(self,pos_functions,size_functions,name:str="",layer=0,size_properties=[],clickable=False,blit_surface=None) -> None:
         """
         This function provides to correctly intialize a GraphicalObject so that it can later be easily used
 
@@ -163,6 +169,11 @@ class GraphicalObject():
         #TODO: should add a random name specifier; should prob use a static variable
         self._name=name
 
+        if type(blit_surface)==str:
+            self.blit_surface=reference(blit_surface)
+        else:
+            self.blit_surface=blit_surface
+
         self._x=0
         self._y=0
         self._xSize=0
@@ -172,6 +183,8 @@ class GraphicalObject():
         self.y_funct=pos_functions[1] if pos_functions[1]!=None else lambda:self._y
         self.xSize_funct=size_functions[0] if size_functions[0]!=None else lambda:self._xSize
         self.ySize_funct=size_functions[1] if size_functions[1]!=None else lambda:self._ySize
+
+        self.updated=True #Tells if the object has been updated since the last time it was drawn
 
         for element in size_properties:
             GraphicalBase.decorations.add_function(element,self.update_size)
@@ -285,9 +298,9 @@ class GraphicalRectangle(GraphicalObject):
 
 class GraphicalText(GraphicalObject):
     """A quick and easy way to display text"""
-    def __init__(self, pos_functions=(None,None), size_functions=(None,None),size_properties=[], text_properties=[], font_properties=[], color_properties=[], alpha_properties=[], name: str="", text_function=lambda:"", font_path="", alpha_function=lambda:255, font_size_function=lambda:32, layer=0,color_function=lambda:(0,0,0), clickable=False) -> None:
+    def __init__(self, pos_functions=(None,None), size_functions=(None,None),size_properties=[], text_properties=[], font_properties=[], color_properties=[], alpha_properties=[], name: str="", text_function=lambda:"", font_path="", alpha_function=lambda:255, font_size_function=lambda:32, layer=0,color_function=lambda:(0,0,0), clickable=False,blit_surface=None) -> None:
         #Should look into this: https://stackoverflow.com/questions/50280553/adding-text-to-a-rectangle-that-can-be-resized-and-moved-on-pygame-without-addo
-        super().__init__(pos_functions, size_functions, name=name, layer=layer, clickable=clickable,size_properties=size_properties)
+        super().__init__(pos_functions, size_functions, name=name, layer=layer, clickable=clickable,size_properties=size_properties,blit_surface=blit_surface)
         self.text_function=text_function
         self.font_function=font_size_function
         self._font_name=font_path
@@ -341,6 +354,7 @@ class GraphicalText(GraphicalObject):
         self.base_surfaces.append(self.font.render(" ".join(line),True,self.color).convert_alpha())
         self.surfaces=self.base_surfaces.copy()
         self.update_alpha()
+        self.updated=True
 
     def update_font(self):
         """Updates the font"""
@@ -362,6 +376,7 @@ class GraphicalText(GraphicalObject):
             surface=self.base_surfaces[i].copy()
             surface.fill(self.color+(self.alpha,),None,pygame.BLEND_RGBA_MULT)
             self.surfaces[i]=surface
+        self.updated=True
 
     def draw(self):
         if self.changed_surface:
@@ -370,11 +385,16 @@ class GraphicalText(GraphicalObject):
         for y, surf in enumerate(self.surfaces):
             if y*self.font_height+self.font_height>self.ySize:
                 break
-            GraphicalBase.container.screen.blit(surf,(self.x,self.y+y*self.font_height))
+            if self.blit_surface is None:
+                GraphicalBase.container.screen.blit(surf,(self.x,self.y+y*self.font_height))
+            else:
+                if self.updated:
+                    self.blit_surface.surface.blit(surf,(self.x,self.y+y*self.font_height))
+                    self.updated=False
 
 class GraphicalSprite(GraphicalObject):
-    def __init__(self, name="", image=[],size_properties=[],layer=0,alpha_function=lambda:255,pos_functions=(None,None),size_functions=(None,None)) -> None:
-        super().__init__(pos_functions,size_functions,layer=layer,name=name,size_properties=size_properties)
+    def __init__(self, name="", image=[],size_properties=[],layer=0,alpha_function=lambda:255,pos_functions=(None,None),size_functions=(None,None),blit_surface=None) -> None:
+        super().__init__(pos_functions,size_functions,layer=layer,name=name,size_properties=size_properties,blit_surface=blit_surface)
         if len(image)>0:
             try:
                 self._base_image=GraphicalBase.container.getAsset(image)#Stores the base image; is used in order to prevent messiness when rescaling
@@ -395,6 +415,7 @@ class GraphicalSprite(GraphicalObject):
     def transform_image(self,xSize,ySize,alpha):
         self._image=pygame.transform.scale(self._base_image,(xSize,ySize))
         self._image.fill((255,255,255,alpha),None,pygame.BLEND_RGBA_MULT)
+        self.updated=True
 
     #Properties
     @property
@@ -408,7 +429,23 @@ class GraphicalSprite(GraphicalObject):
 
     def draw(self):
         #TODO: add a size setter
-        GraphicalBase.container.screen.blit(self._image,(self.x,self.y))
+        if self.blit_surface is None:
+            GraphicalBase.container.screen.blit(self._image,(self.x,self.y))
+        else:
+            if self.updated:
+                self.blit_surface.surface.blit(self._image,(self.x,self.y))
+                self.updated=False
+        #GraphicalBase.container.screen.blit(self._image,(self.x,self.y))
+
+class GraphicalSurface(GraphicalObject):
+    def __init__(self, pos_functions=(), size_functions=(), name: str = "", layer=0, size_properties=[], clickable=False) -> None:
+        super().__init__(pos_functions, size_functions, name=name, layer=layer, size_properties=size_properties, clickable=clickable)
+        self.surface=pygame.Surface((self.xSize,self.ySize),pygame.SRCALPHA,32)#Don't know ab those last two args
+    def update_size(self):
+        self.surface=pygame.Surface((self.xSize,self.ySize),pygame.SRCALPHA,32)
+    def draw(self):
+        GraphicalBase.container.screen.blit(self.surface,(self.x,self.y))
+    #TODO: add alpha values
 
 #Functions
 def reference(objectName:str) -> GraphicalObject:
