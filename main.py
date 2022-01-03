@@ -18,11 +18,17 @@ class Container():
     ----
     - object_dict: a dict which contains all of the GraphicalObject classes, linked with their names; here's an example: {"player":<GraphicalSprite>}; if an object with an already existing name is created, the oldest gets overwritten
     - updatedList: a list which holds all the objects which have been updated in an update cycle
-    - layers: a dict which contains the name references of the objects, layer by layer; the layers with lower values are the ones which get drawn first, in other words, the layers with higher values are more likely to be visible"""
-    def __init__(self,screen:pygame.display,dirpath,resize_function) -> None:
+    - layers: a dict which contains the name references of the objects, layer by layer; the layers with lower values are the ones which get drawn first, in other words, the layers with higher values are more likely to be visible
+    - fps: the frames per second of the game
+    - ups: the updates per second of the game"""
+    def __init__(self,screen:pygame.display,dirpath,resize_function,fps=60,ups=30,update_function=lambda: 1) -> None:
+        self.FPS=fps
+        self.UPS=ups
+        self.update_frame=0
+        self.update_function=update_function
+
         self.assets={} #A dictionary which holds all the assets
-        assetPath=dirpath+"assets/textures"
-        self.loadAssets(assetPath)
+        self.dirpath=dirpath
 
         self.screen=screen #The screen which is used to draw the objects
         GraphicalBase.decorations=Decorations() #A class which contains decoration functions
@@ -30,7 +36,7 @@ class Container():
         GraphicalBase.container=self #The container which is used throughout the program. MUST be initialized before any other object
         self.updatedList=[] #The objects updated in an update cycle; is needed in order to not update the same object twice
         self.windowPointedBy=[] #List of objects which point the window and will be updated on resize
-        self.layers={} #Dict of all layers by which objects are drawn; references are to the objects' names, so that if they are replaced there should be no trouble; every layer is a list with an int by index
+        self.layers={"on_surface":{},"on_screen":{}} #Dict of all layers by which objects are drawn; references are to the objects' names, so that if they are replaced there should be no trouble; every layer is a list with an int by index
         self.resize_function=resize_function
 
     #Properties
@@ -42,25 +48,22 @@ class Container():
         return self.screen.get_height()
 
     #Asset loading
-    def loadAssets(self,assetpath,subpath="") -> dict:
-        """This function should load all assets in a folder and store them neatly in a dict, even though most of the work is done by Container.getAsset()"""
-        self.assets=self.loadAsset(assetpath+subpath)
-    def loadAsset(self,thisPath):
-        """Is used to get an image asset. If this is an image, a pygame.Surface object; if this is a directory, the function is re-run at the path of the function"""
-        if path.isfile(thisPath):
-            return pygame.image.load(thisPath).convert_alpha()
-        elif path.isdir(thisPath):
-            outputDict={}
-            for element in listdir(thisPath+"/"):
-                outputDict[element.replace(".png","")]=self.loadAsset(thisPath+"/"+element)
-            return outputDict
-    def getAsset(self,assetDirList:list):
-        """Returns the image at the assetDirList"""
-        currentDict=self.assets
-        for element in assetDirList:
-            currentDict=currentDict[element]
-        return currentDict
+    def getImageAsset(self,assetDir:str) -> pygame.Surface:
+        if assetDir not in self.assets:
+            if path.isfile(self.dirpath+"/assets/textures/"+assetDir):
+                value=pygame.image.load(self.dirpath+"/assets/textures/"+assetDir).convert_alpha()
+                self.assets[assetDir]=value
+                return value
+            else:
+                raise Exception("The image asset "+assetDir+" does not exist")
+        else:
+            return self.assets[assetDir]
 
+    def update(self) -> None:
+        """A function called every frame, which will be run UPS amount of times each second, if called every frame"""
+        self.update_frame+=1
+        if self.update_frame>=self.FPS/self.UPS:
+            self.update_function()
 
     def resize(self,width:int,height:int) -> None:
         """A function which should be run when the video window is resized"""
@@ -71,23 +74,12 @@ class Container():
         """for keyname in self.object_dict:
             self.object_dict[keyname].draw()"""
         #FIXME: should reorder the keys in the dict and then use those, in order to save time
-        surfaces=[]
-        for i in sorted(self.layers.keys()):
-            for element in self.layers[i]:
-                if type(element)==GraphicalSurface:
-                    surfaces.append(element)
-                else:
-                    self.object_dict[element].draw()
-        for element in surfaces:
-            element.draw()
-        """i=0
-        j=0
-        while i<len(self.layers):
-            if j in self.layers:
-                for keyname in self.layers[j]:
-                    self.object_dict[keyname].draw()
-                i+=1
-            j+=1"""
+        for i in sorted(self.layers["on_surface"].keys()): #Draws all the objects which are supposed to be blitted on a surface, so that when the surface is later blitted, there is no trouble
+            for element in self.layers["on_surface"][i]:
+                self.object_dict[element].draw()
+        for i in sorted(self.layers["on_screen"].keys()):
+            for element in self.layers["on_screen"][i]:
+                self.object_dict[element].draw()
 
 class Decorations():
     """A class which enables the use of custom properties, used to update graphical objects only when needed"""
@@ -174,6 +166,7 @@ class GraphicalObject():
         else:
             self.blit_surface=blit_surface
 
+
         self._x=0
         self._y=0
         self._xSize=0
@@ -192,10 +185,16 @@ class GraphicalObject():
         self.dimension_cache={}
 
         #Adds in right layer
-        if layer not in GraphicalBase.container.layers:
-            GraphicalBase.container.layers[layer]=[]
-        if self not in GraphicalBase.container.layers[layer]:
-            GraphicalBase.container.layers[layer].append(self._name)
+        if self.blit_surface is None:
+            if layer not in GraphicalBase.container.layers["on_screen"]:
+                GraphicalBase.container.layers["on_screen"][layer]=[]
+            if self not in GraphicalBase.container.layers["on_screen"][layer]:
+                GraphicalBase.container.layers["on_screen"][layer].append(self._name)
+        else:
+            if layer not in GraphicalBase.container.layers["on_surface"]:
+                GraphicalBase.container.layers["on_surface"][layer]=[]
+            if self not in GraphicalBase.container.layers["on_surface"][layer]:
+                GraphicalBase.container.layers["on_surface"][layer].append(self._name)
 
     def dimensionalProperty(self,func,change_func):
         """A decorator for dimensional properties, such as xSize and ySize.
@@ -221,24 +220,28 @@ class GraphicalObject():
     #Properties
     @property
     def x(self):
+        """The x position of the object"""
         return self.x_funct()
     @x.setter
     def x(self,value):
         self._x=value
     @property
     def y(self):
+        """The y position of the object"""
         return self.y_funct()
     @y.setter
     def y(self,value):
         self._y=value
     @property
     def xSize(self):
+        """The x size of the object"""
         return self.xSize_funct()
     @xSize.setter
     def xSize(self,value):
         self._xSize=value
     @property
     def ySize(self):
+        """The y size of the object"""
         return self.ySize_funct()
     @ySize.setter
     def ySize(self,value):
@@ -374,7 +377,7 @@ class GraphicalText(GraphicalObject):
         """Updates the alpha of the text"""
         for i in range (len(self.base_surfaces)):
             surface=self.base_surfaces[i].copy()
-            surface.fill(self.color+(self.alpha,),None,pygame.BLEND_RGBA_MULT)
+            surface.set_alpha(self.alpha)
             self.surfaces[i]=surface
         self.updated=True
 
@@ -393,15 +396,15 @@ class GraphicalText(GraphicalObject):
                     self.updated=False
 
 class GraphicalSprite(GraphicalObject):
-    def __init__(self, name="", image=[],size_properties=[],layer=0,alpha_function=lambda:255,pos_functions=(None,None),size_functions=(None,None),blit_surface=None) -> None:
+    def __init__(self, name="", image="",size_properties=[],layer=0,alpha_function=lambda:255,pos_functions=(None,None),size_functions=(None,None),blit_surface=None) -> None:
         super().__init__(pos_functions,size_functions,layer=layer,name=name,size_properties=size_properties,blit_surface=blit_surface)
         if len(image)>0:
             try:
-                self._base_image=GraphicalBase.container.getAsset(image)#Stores the base image; is used in order to prevent messiness when rescaling
+                self._base_image=GraphicalBase.container.getImageAsset(image)#Stores the base image; is used in order to prevent messiness when rescaling
             except Exception as e:
-                image=[]
+                image=""
         if len(image)==0:#Not an else so that it can be entered if load fails
-            self._base_image=GraphicalBase.container.getAsset(["nullimage"])
+            self._base_image=GraphicalBase.container.getImageAsset("nullimage.png")
         self._image=self._base_image
 
         self.alpha_function=alpha_function
@@ -438,9 +441,19 @@ class GraphicalSprite(GraphicalObject):
         #GraphicalBase.container.screen.blit(self._image,(self.x,self.y))
 
 class GraphicalSurface(GraphicalObject):
-    def __init__(self, pos_functions=(), size_functions=(), name: str = "", layer=0, size_properties=[], clickable=False) -> None:
+    def __init__(self, pos_functions=(), size_functions=(), name: str = "", layer=0, size_properties=[], alpha_function=lambda:255, alpha_properties=[], clickable=False) -> None:
         super().__init__(pos_functions, size_functions, name=name, layer=layer, size_properties=size_properties, clickable=clickable)
-        self.surface=pygame.Surface((self.xSize,self.ySize),pygame.SRCALPHA,32)#Don't know ab those last two args
+        self.alpha_function=alpha_function
+        for element in alpha_properties:
+            GraphicalBase.decorations.add_function(element,self.update_alpha)
+        self.surface=pygame.Surface((self.xSize,self.ySize),pygame.SRCALPHA,32) #Don't know ab those last two args
+
+    @property
+    def alpha(self):
+        return self.alpha_function()
+
+    def update_alpha(self):
+        self.surface.set_alpha(self.alpha)
     def update_size(self):
         self.surface=pygame.Surface((self.xSize,self.ySize),pygame.SRCALPHA,32)
     def draw(self):
