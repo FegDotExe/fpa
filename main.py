@@ -21,14 +21,23 @@ class Container():
     - layers: a dict which contains the name references of the objects, layer by layer; the layers with lower values are the ones which get drawn first, in other words, the layers with higher values are more likely to be visible
     - fps: the frames per second of the game
     - ups: the updates per second of the game"""
-    def __init__(self,screen:pygame.display,dirpath,resize_function,fps=60,ups=30,update_function=lambda: 1) -> None:
+    def __init__(self,screen:pygame.display,dirpath,resize_function,fps=60,ups=30,update_function=lambda: 1, frame_function=None) -> None:
         self.FPS=fps
         self.UPS=ups
-        self.update_frame=0
-        self.update_function=update_function
+        self.update_frame=0 #Which frame is currently being run in order to update
+        self.max_update_frame=self.FPS/self.UPS #The maximum amount of frames that can be run before an update is called
+
+        self.update_function=update_function #A function which should be called every UPS amount of times per second
+        self.frame_function=frame_function #A function which should be called every frame
+
+        self.frame_event_dict={"normal":[]} #A list which holds all the events which should be run every frame
 
         self.assets={} #A dictionary which holds all the assets
         self.dirpath=dirpath
+
+        self.click_layers={} #A dictionary which holds all the objects which can be clicked on, and which layer they are in
+
+        self.frame_cache_dict={} #A dictionary which holds values of all functions which are run in a frame; is emptied every frame and is used to improve performance
 
         self.screen=screen #The screen which is used to draw the objects
         GraphicalBase.decorations=Decorations() #A class which contains decoration functions
@@ -62,8 +71,53 @@ class Container():
     def update(self) -> None:
         """A function called every frame, which will be run UPS amount of times each second, if called every frame"""
         self.update_frame+=1
-        if self.update_frame>=self.FPS/self.UPS:
+        if self.update_frame>=self.max_update_frame:
             self.update_function()
+            self.update_frame=0
+    def frame(self) -> None:
+        """A function which should be called every frame"""
+        if self.frame_function!=None:
+            self.frame_function()
+        for frame_event in self.frame_event_dict["normal"]:
+            frame_event.frame()
+        for frame_event in list(self.frame_event_dict):
+            if frame_event!="normal":
+                self.frame_event_dict[frame_event].frame()
+
+    class frame_event():
+        """A way to trigger an event which should be repeated a certain amount of times. It will not be overwritten by other events with the same name, if the name is specified"""
+        def __init__(self,normal_function,final_function,dict_name="normal",frame_amount=None) -> None:
+            if frame_amount==None:
+                frame_amount=GraphicalBase.container.max_update_frame
+            self.frame_amount=frame_amount
+            self.frame_id=0
+            self.normal_function=normal_function
+            self.final_function=final_function
+            self.dict_name=dict_name
+            if dict_name=="normal":
+                GraphicalBase.container.frame_event_dict[dict_name].append(self) #Append this event to the list of events which should be run every frame
+            else:
+                if dict_name not in GraphicalBase.container.frame_event_dict:
+                    GraphicalBase.container.frame_event_dict[dict_name]=self #Append this event to the list of events which should be run every frame
+        def frame(self):
+            """Make a frame pass for this frame event"""
+            self.frame_id+=1
+            if self.frame_id>=self.frame_amount:
+                self.final_function()
+                if self.dict_name=="normal":
+                    GraphicalBase.container.frame_event_dict[self.dict_name].remove(self)
+                else:
+                    GraphicalBase.container.frame_event_dict.pop(self.dict_name) #Remove this event from the list of events which should be run every frame
+            else:
+                self.normal_function()
+    
+    def click(self,x,y):
+        """Used to verify a click event"""
+        for layer in self.click_layers:
+            for element in self.click_layers[layer]:
+                element=reference(element)
+                if x>=element.x and y>=element.y and x<=element.x+element.xSize and y<element.y+element.ySize:
+                    print(element) #Should call a click function for the object and then break if the object is stopping #TODO: add stopping
 
     def resize(self,width:int,height:int) -> None:
         """A function which should be run when the video window is resized"""
@@ -80,6 +134,16 @@ class Container():
         for i in sorted(self.layers["on_screen"].keys()):
             for element in self.layers["on_screen"][i]:
                 self.object_dict[element].draw()
+        self.frame_cache_dict={}
+
+    #Decorators
+    def frame_cache(self,funct):
+        """A decorator which caches the return value of a function, so that it is only run once per frame"""
+        def internal(*args,**kwargs):
+            if funct.__name__ not in self.frame_cache_dict:
+                self.frame_cache_dict[funct.__name__]=funct(*args,**kwargs)
+            return self.frame_cache_dict[funct.__name__]
+        return internal
 
 class Decorations():
     """A class which enables the use of custom properties, used to update graphical objects only when needed"""
@@ -136,6 +200,36 @@ class Decorations():
         delattr(self,name+"_var")
         delattr(type(self),name)
 
+#Key handling
+class KeyHandler():
+    keys=set()
+    def down(key):
+        KeyHandler.keys.add(key)
+    def up(key):
+        KeyHandler.keys.remove(key)
+    D=100
+    S=115
+    A=97
+    W=119
+    Z=122
+
+class MouseHandler():
+    buttons={"down":{},"up":{},"held":{}}
+    def down(button,x,y):
+        MouseHandler.buttons["down"][button]=[x,y]
+    def up(button):
+        MouseHandler.buttons["down"].pop(button,None)
+        MouseHandler.buttons["up"].pop(button,None)
+    def hold(button):
+        """Tells that the click should be considered held"""
+        MouseHandler.buttons["held"][button]=MouseHandler.buttons["new"][button]
+        MouseHandler.buttons["down"].pop(button,None)
+    def remove(button):
+        """Removes the click"""
+        MouseHandler.buttons["down"].pop(button,None)
+        MouseHandler.buttons["up"].pop(button,None)
+        MouseHandler.buttons["held"].pop(button,None)
+
 #Graphical classes
 class GraphicalBase():
     """The base which holds static variables for graphical objects"""
@@ -172,6 +266,11 @@ class GraphicalObject():
         self._xSize=0
         self._ySize=0
 
+        self.base_x=0
+        self.base_y=0
+        self.base_xSize=0
+        self.base_ySize=0
+
         self.x_funct=pos_functions[0] if pos_functions[0]!=None else lambda:self._x
         self.y_funct=pos_functions[1] if pos_functions[1]!=None else lambda:self._y
         self.xSize_funct=size_functions[0] if size_functions[0]!=None else lambda:self._xSize
@@ -195,6 +294,12 @@ class GraphicalObject():
                 GraphicalBase.container.layers["on_surface"][layer]=[]
             if self not in GraphicalBase.container.layers["on_surface"][layer]:
                 GraphicalBase.container.layers["on_surface"][layer].append(self._name)
+
+        self.clickable=clickable
+        if self.clickable:
+            if layer not in GraphicalBase.container.click_layers:
+                GraphicalBase.container.click_layers[layer]=[]
+            GraphicalBase.container.click_layers[layer].append(self._name)
 
     def dimensionalProperty(self,func,change_func):
         """A decorator for dimensional properties, such as xSize and ySize.
@@ -396,8 +501,8 @@ class GraphicalText(GraphicalObject):
                     self.updated=False
 
 class GraphicalSprite(GraphicalObject):
-    def __init__(self, name="", image="",size_properties=[],layer=0,alpha_function=lambda:255,pos_functions=(None,None),size_functions=(None,None),blit_surface=None) -> None:
-        super().__init__(pos_functions,size_functions,layer=layer,name=name,size_properties=size_properties,blit_surface=blit_surface)
+    def __init__(self, name="", image="",size_properties=[],layer=0,alpha_function=lambda:255,pos_functions=(None,None),size_functions=(None,None),blit_surface=None,clickable=False) -> None:
+        super().__init__(pos_functions,size_functions,layer=layer,name=name,size_properties=size_properties,blit_surface=blit_surface,clickable=clickable)
         if len(image)>0:
             try:
                 self._base_image=GraphicalBase.container.getImageAsset(image)#Stores the base image; is used in order to prevent messiness when rescaling
