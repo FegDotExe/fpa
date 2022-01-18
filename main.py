@@ -5,6 +5,9 @@ from os import path,listdir
 #TODO: add intermediate blitting
 #https://stackoverflow.com/questions/46965968/is-there-a-faster-way-to-blit-many-images-on-pygame
 
+#FIXME: should have a way to get the real coordinates of an object, even if it is blitted on a surface
+#   About this one: should have a way to say "Yo I am a surface and I have been clicked" and then use the surface to see what has been clicked in it
+
 class Container():
     """
     Container
@@ -35,7 +38,7 @@ class Container():
         self.assets={} #A dictionary which holds all the assets
         self.dirpath=dirpath
 
-        self.click_layers={} #A dictionary which holds all the objects which can be clicked on, and which layer they are in
+        self.click_layers={"main":{}} #A dictionary which holds all the objects which can be clicked on, and which layer they are in
 
         self.frame_cache_dict={} #A dictionary which holds values of all functions which are run in a frame; is emptied every frame and is used to improve performance
 
@@ -45,7 +48,9 @@ class Container():
         GraphicalBase.container=self #The container which is used throughout the program. MUST be initialized before any other object
         self.updatedList=[] #The objects updated in an update cycle; is needed in order to not update the same object twice
         self.windowPointedBy=[] #List of objects which point the window and will be updated on resize
-        self.layers={"on_surface":{},"on_screen":{}} #Dict of all layers by which objects are drawn; references are to the objects' names, so that if they are replaced there should be no trouble; every layer is a list with an int by index
+        self.layers={"main":{}} #Dict of all layers by which objects are drawn; references are to the objects' names, so that if they are replaced there should be no trouble; every layer is a list with an int by index
+        self.surface_layers={} #Used to correctly draw the surfaces
+
         self.resize_function=resize_function
 
     #Properties
@@ -112,27 +117,49 @@ class Container():
                 self.normal_function()
     
     def click(self,x,y):
-        """Used to verify a click event"""
-        for layer in self.click_layers:
-            for element in self.click_layers[layer]:
+        """Used to verify a click event: returns all the objects which have been clicked on"""
+        output=[]
+        self.detect_clicked("main",output,x,y)
+        return output
+    def detect_clicked(self,key,output,x,y):
+        """Returns the clicked object at given coordinates; also supports surface layering"""
+        for layer in self.click_layers[key]:
+            for element in self.click_layers[key][layer]:
                 element=reference(element)
-                if x>=element.x and y>=element.y and x<=element.x+element.xSize and y<element.y+element.ySize:
-                    print(element) #Should call a click function for the object and then break if the object is stopping #TODO: add stopping
+                if x>=element.x and y>=element.y and x<=element.x+element.xSize and y<element.y+element.ySize: #Aka element has been clicked
+                    if element._name in self.click_layers:
+                        self.detect_clicked(element._name,output,x-element.x,y-element.y)
+                    else:
+                        output.append(element)
+                    if element.stop_click:
+                        return output
 
     def resize(self,width:int,height:int) -> None:
         """A function which should be run when the video window is resized"""
         self.screen=pygame.display.set_mode((width,height),pygame.RESIZABLE)
         self.resize_function()
     def draw(self) -> None:
-        """Draws all the objects stored in the object_dict"""
-        """for keyname in self.object_dict:
-            self.object_dict[keyname].draw()"""
         #FIXME: should reorder the keys in the dict and then use those, in order to save time
-        for i in sorted(self.layers["on_surface"].keys()): #Draws all the objects which are supposed to be blitted on a surface, so that when the surface is later blitted, there is no trouble
+        """for i in sorted(self.layers["on_surface"].keys()): #Draws all the objects which are supposed to be blitted on a surface, so that when the surface is later blitted, there is no trouble
             for element in self.layers["on_surface"][i]:
                 self.object_dict[element].draw()
         for i in sorted(self.layers["on_screen"].keys()):
             for element in self.layers["on_screen"][i]:
+                self.object_dict[element].draw()"""
+
+        for layer in sorted(self.surface_layers.keys()):
+            for surface in self.surface_layers[layer]:
+                if surface in self.layers:
+                    for layer in sorted(self.layers[surface].keys()):
+                        for element in self.layers[surface][layer]:
+                            self.object_dict[element].draw()
+        """for key in self.layers:
+            if key!="main":
+                for i in sorted(self.layers[key].keys()):
+                    for element in self.layers[key][i]:
+                        self.object_dict[element].draw()"""
+        for i in sorted(self.layers["main"].keys()):
+            for element in self.layers["main"][i]:
                 self.object_dict[element].draw()
         self.frame_cache_dict={}
 
@@ -148,15 +175,16 @@ class Container():
 class Decorations():
     """A class which enables the use of custom properties, used to update graphical objects only when needed"""
     class DimensionalProperty():
-        def __init__(self,fget,fset=None) -> None:
+        def __init__(self,fget,fset=None,cache=True) -> None:
             self.fget=fget
             self.fset=fset
             self.functions={}
             self.previous=None
+            self.cache=cache
         def __get__(self,obj,objtype=None):
             return self.fget(obj)
         def __set__(self,obj,value):
-            if self.previous!=value:
+            if (self.cache and self.previous!=value) or not self.cache:
                 self.previous=value
                 self.fset(obj,value)
                 for function in self.functions:
@@ -176,7 +204,7 @@ class Decorations():
         property=self.get_property_class(property_name)
         property.functions[function]=args
 
-    def add_property(self,name,fget=None,fset=None):
+    def add_property(self,name,fget=None,fset=None,cache=True):
         """Add a property to the class. This function also creates a variable for the property, named '<name>_var', <name> being the name argument"""
         setattr(self,name+"_var",0)
         def internal_fget(self):
@@ -187,7 +215,7 @@ class Decorations():
         out_fget=internal_fget if fget is None else fget
         out_fset=internal_fset if fset is None else fset
         
-        setattr(type(self),name,Decorations.DimensionalProperty(out_fget,out_fset))
+        setattr(type(self),name,Decorations.DimensionalProperty(out_fget,out_fset,cache=cache))
 
     def remove_function(self,property_name,function):
         """Remove a function from a property"""
@@ -202,11 +230,49 @@ class Decorations():
 
 #Key handling
 class KeyHandler():
-    keys=set()
+    """
+    Description
+    -
+    A class which handles key presses
+
+    Write methods
+    -
+    - down(key) is used to signal that a key is down
+    - up(key) is used to signal that a key is up
+    - held(key) is used to signal that a key is held
+    - remove(key) is used to remove a key from the list of keys: down, up, held
+
+    Read methods
+    -
+    - is_down(key) is used to check if a key is down
+    - is_up(key) is used to check if a key is up
+    - is_held(key) is used to check if a key is held
+    """
+    keys={"down":set(),"up":set(),"held":set()}
     def down(key):
-        KeyHandler.keys.add(key)
+        """Tells the keyhandler that a key is down"""
+        KeyHandler.keys["down"].add(key)
     def up(key):
-        KeyHandler.keys.remove(key)
+        """Tells the keyhandler that a key is up"""
+        KeyHandler.keys["up"].add(key)
+    def held(key):
+        """Tells the keyhandler that a key is held"""
+        KeyHandler.keys["held"].add(key)
+    def remove(key):
+        """Removes a key from every set"""
+        KeyHandler.keys["down"].discard(key)
+        KeyHandler.keys["up"].discard(key)
+        KeyHandler.keys["held"].discard(key)
+
+    def is_down(key):
+        """Returns true if the key is down"""
+        return key in KeyHandler.keys["down"]
+    def is_up(key):
+        """Returns true if the key is up"""
+        return key in KeyHandler.keys["up"]
+    def is_held(key):
+        """Returns true if the key is held"""
+        return key in KeyHandler.keys["held"]
     D=100
     S=115
     A=97
@@ -241,7 +307,7 @@ class GraphicalBase():
 
 class GraphicalObject():
     """Base of all graphical objects; holds its static variables in GraphicalBase"""
-    def __init__(self,pos_functions,size_functions,name:str="",layer=0,size_properties=[],clickable=False,blit_surface=None) -> None:
+    def __init__(self,pos_functions,size_functions,name:str="",layer=0,pos_properties=[],size_properties=[],clickable=False,stop_click=False,click_layer=None,blit_surface=None) -> None:
         """
         This function provides to correctly intialize a GraphicalObject so that it can later be easily used
 
@@ -280,26 +346,43 @@ class GraphicalObject():
 
         for element in size_properties:
             GraphicalBase.decorations.add_function(element,self.update_size)
+        for element in pos_properties:
+            GraphicalBase.decorations.add_function(element,self.update_pos)
 
         self.dimension_cache={}
 
         #Adds in right layer
         if self.blit_surface is None:
-            if layer not in GraphicalBase.container.layers["on_screen"]:
-                GraphicalBase.container.layers["on_screen"][layer]=[]
-            if self not in GraphicalBase.container.layers["on_screen"][layer]:
-                GraphicalBase.container.layers["on_screen"][layer].append(self._name)
+            if layer not in GraphicalBase.container.layers["main"]:
+                GraphicalBase.container.layers["main"][layer]=[]
+            if self not in GraphicalBase.container.layers["main"][layer]:
+                GraphicalBase.container.layers["main"][layer].append(self._name)
         else:
-            if layer not in GraphicalBase.container.layers["on_surface"]:
-                GraphicalBase.container.layers["on_surface"][layer]=[]
-            if self not in GraphicalBase.container.layers["on_surface"][layer]:
-                GraphicalBase.container.layers["on_surface"][layer].append(self._name)
+            if self.blit_surface._name not in GraphicalBase.container.layers:
+                GraphicalBase.container.layers[self.blit_surface._name]={}
+            if layer not in GraphicalBase.container.layers[self.blit_surface._name]:
+                GraphicalBase.container.layers[self.blit_surface._name][layer]=[]
+            if self not in GraphicalBase.container.layers[self.blit_surface._name][layer]:
+                GraphicalBase.container.layers[self.blit_surface._name][layer].append(self._name)
 
+        #Click interaction
         self.clickable=clickable
+        self.stop_click=stop_click
+        self.click_layer=click_layer
         if self.clickable:
-            if layer not in GraphicalBase.container.click_layers:
-                GraphicalBase.container.click_layers[layer]=[]
-            GraphicalBase.container.click_layers[layer].append(self._name)
+            temp_layer=self.click_layer if self.click_layer!=None else layer
+
+            if self.blit_surface is None:
+                if temp_layer not in GraphicalBase.container.click_layers["main"]:
+                    GraphicalBase.container.click_layers["main"][temp_layer]=[]
+                GraphicalBase.container.click_layers["main"][temp_layer].append(self._name)
+            else:
+                if self.blit_surface._name not in GraphicalBase.container.click_layers:
+                    GraphicalBase.container.click_layers[self.blit_surface._name]={}
+                if temp_layer not in GraphicalBase.container.click_layers[self.blit_surface._name]:
+                    GraphicalBase.container.click_layers[self.blit_surface._name][temp_layer]=[]
+                if self._name not in GraphicalBase.container.click_layers[self.blit_surface._name][temp_layer]:
+                    GraphicalBase.container.click_layers[self.blit_surface._name][temp_layer].append(self._name)
 
     def dimensionalProperty(self,func,change_func):
         """A decorator for dimensional properties, such as xSize and ySize.
@@ -361,6 +444,8 @@ class GraphicalObject():
         pass
     def update_size(self):
         pass
+    def update_pos(self):
+        pass
 
     def __str__(self):
         #FIXME: still uses old variables
@@ -369,46 +454,32 @@ class GraphicalObject():
     def __repr__(self) -> str:
         return self.__str__()
 
-    #TODO: add framed movement
-
 class GraphicalRectangle(GraphicalObject):
     #TODO: change implementation to use decorators
-    def __init__(self, name: str="", rect=pygame.Rect((0,0),(100,100)),layer=0,color=(0,0,0),pos_functions=(None,None),size_functions=(None,None)) -> None:
-        super().__init__(pos_functions,size_functions,layer=layer,name=name)
+    def __init__(self, name: str="", rect=pygame.Rect((0,0),(100,100)),layer=0,color=(0,0,0),pos_functions=(None,None),size_functions=(None,None),size_properties=[],pos_properties=[]) -> None:
+        #print(pos_properties)
+        super().__init__(pos_functions,size_functions,layer=layer,name=name,size_properties=size_properties,pos_properties=pos_properties)
         self._rect=rect
         self._color=color
-        self.dimension_cache={}
 
-    @property
-    def x(self):
-        def change_rect(x):
-            self._rect.left=x
-        return self.dimensionalProperty(self.x_funct,change_rect)()
-    @property
-    def y(self):
-        def change_rect(y):
-            self._rect.top=y
-        return self.dimensionalProperty(self.y_funct,change_rect)()
-    @property
-    def xSize(self):
-        def change_rect(xSize):
-            self._rect.width=xSize
-        return self.dimensionalProperty(self.xSize_funct,change_rect)()
-    @property
-    def ySize(self):
-        def change_rect(ySize):
-            self._rect.height=ySize
-        return self.dimensionalProperty(self.ySize_funct,change_rect)()
+        self.update_pos()
+        self.update_size()
+
+    def update_pos(self):
+        self._rect.left=self.x
+        self._rect.top=self.y
+    def update_size(self):
+        self._rect.width=self.xSize
+        self._rect.height=self.ySize
     
     def draw(self):
-        variables=(self.x,self.y,self.xSize,self.ySize) #Used to update variables
         pygame.draw.rect(surface=GraphicalBase.container.screen,color=self._color,rect=self._rect)
 
 class GraphicalText(GraphicalObject):
     """A quick and easy way to display text"""
-    def __init__(self, pos_functions=(None,None), size_functions=(None,None),size_properties=[], text_properties=[], font_properties=[], color_properties=[], alpha_properties=[], name: str="", text_function=lambda:"", font_path="", alpha_function=lambda:255, font_size_function=lambda:32, layer=0,color_function=lambda:(0,0,0), clickable=False,blit_surface=None) -> None:
+    def __init__(self, pos_functions=(None,None), size_functions=(None,None),size_properties=[], text_properties=[], font_properties=[], color_properties=[], alpha_properties=[], name: str="", text_function=lambda:"", font_path="", alpha_function=lambda:255, font_size_function=lambda:32, layer=0,color_function=lambda:(0,0,0), clickable=False,stop_click=False, click_layer=None ,blit_surface=None) -> None:
         #Should look into this: https://stackoverflow.com/questions/50280553/adding-text-to-a-rectangle-that-can-be-resized-and-moved-on-pygame-without-addo
-        super().__init__(pos_functions, size_functions, name=name, layer=layer, clickable=clickable,size_properties=size_properties,blit_surface=blit_surface)
+        super().__init__(pos_functions, size_functions, name=name, layer=layer, clickable=clickable,size_properties=size_properties,blit_surface=blit_surface,stop_click=stop_click,click_layer=click_layer)
         self.text_function=text_function
         self.font_function=font_size_function
         self._font_name=font_path
@@ -501,8 +572,8 @@ class GraphicalText(GraphicalObject):
                     self.updated=False
 
 class GraphicalSprite(GraphicalObject):
-    def __init__(self, name="", image="",size_properties=[],layer=0,alpha_function=lambda:255,pos_functions=(None,None),size_functions=(None,None),blit_surface=None,clickable=False) -> None:
-        super().__init__(pos_functions,size_functions,layer=layer,name=name,size_properties=size_properties,blit_surface=blit_surface,clickable=clickable)
+    def __init__(self, name="", image="",size_properties=[],layer=0,alpha_function=lambda:255,pos_functions=(None,None),size_functions=(None,None),blit_surface=None,clickable=False,stop_click=False,click_layer=None) -> None:
+        super().__init__(pos_functions,size_functions,layer=layer,name=name,size_properties=size_properties,blit_surface=blit_surface,clickable=clickable,stop_click=stop_click,click_layer=click_layer)
         if len(image)>0:
             try:
                 self._base_image=GraphicalBase.container.getImageAsset(image)#Stores the base image; is used in order to prevent messiness when rescaling
@@ -546,12 +617,17 @@ class GraphicalSprite(GraphicalObject):
         #GraphicalBase.container.screen.blit(self._image,(self.x,self.y))
 
 class GraphicalSurface(GraphicalObject):
-    def __init__(self, pos_functions=(), size_functions=(), name: str = "", layer=0, size_properties=[], alpha_function=lambda:255, alpha_properties=[], clickable=False) -> None:
-        super().__init__(pos_functions, size_functions, name=name, layer=layer, size_properties=size_properties, clickable=clickable)
+    def __init__(self, pos_functions=(), size_functions=(), name: str = "", layer=0, size_properties=[], alpha_function=lambda:255, alpha_properties=[], clickable=False, stop_click=False, click_layer=None) -> None:
+        super().__init__(pos_functions, size_functions, name=name, layer=layer, size_properties=size_properties, clickable=clickable, stop_click=stop_click, click_layer=click_layer)
         self.alpha_function=alpha_function
         for element in alpha_properties:
             GraphicalBase.decorations.add_function(element,self.update_alpha)
         self.surface=pygame.Surface((self.xSize,self.ySize),pygame.SRCALPHA,32) #Don't know ab those last two args
+
+        if layer not in GraphicalBase.container.surface_layers:
+            GraphicalBase.container.surface_layers[layer]=[]
+        if self._name not in GraphicalBase.container.surface_layers[layer]:
+            GraphicalBase.container.surface_layers[layer].append(self._name)
 
     @property
     def alpha(self):
@@ -563,7 +639,6 @@ class GraphicalSurface(GraphicalObject):
         self.surface=pygame.Surface((self.xSize,self.ySize),pygame.SRCALPHA,32)
     def draw(self):
         GraphicalBase.container.screen.blit(self.surface,(self.x,self.y))
-    #TODO: add alpha values
 
 #Functions
 def reference(objectName:str) -> GraphicalObject:
