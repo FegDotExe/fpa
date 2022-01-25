@@ -1,13 +1,15 @@
 from posixpath import dirname
 import pygame
 from os import path,listdir
+from bisect import insort
 
-#TODO: add intermediate blitting
 #https://stackoverflow.com/questions/46965968/is-there-a-faster-way-to-blit-many-images-on-pygame
 
-#FIXME: should have a way to get the real coordinates of an object, even if it is blitted on a surface
-#   About this one: should have a way to say "Yo I am a surface and I have been clicked" and then use the surface to see what has been clicked in it
-
+#TODO: add a way to get absolute (non-surfaced) coordinates of an object
+#TODO: reorder the click dictionary
+#TODO: add binary search to make things significantly faster
+#TODO: add collision methods
+#TODO: add pixel-perfect collision
 class Container():
     """
     Container
@@ -49,9 +51,10 @@ class Container():
         self.updatedList=[] #The objects updated in an update cycle; is needed in order to not update the same object twice
         self.windowPointedBy=[] #List of objects which point the window and will be updated on resize
         self.layers={"main":{}} #Dict of all layers by which objects are drawn; references are to the objects' names, so that if they are replaced there should be no trouble; every layer is a list with an int by index
-        self.surface_layers={} #Used to correctly draw the surfaces
 
         self.resize_function=resize_function
+
+        self.frame_draws=0
 
     #Properties
     @property
@@ -123,7 +126,7 @@ class Container():
         return output
     def detect_clicked(self,key,output,x,y):
         """Returns the clicked object at given coordinates; also supports surface layering"""
-        for layer in self.click_layers[key]:
+        for layer in sorted(self.click_layers[key].keys(),reverse=True):
             for element in self.click_layers[key][layer]:
                 element=reference(element)
                 if x>=element.x and y>=element.y and x<=element.x+element.xSize and y<element.y+element.ySize: #Aka element has been clicked
@@ -139,29 +142,23 @@ class Container():
         self.screen=pygame.display.set_mode((width,height),pygame.RESIZABLE)
         self.resize_function()
     def draw(self) -> None:
-        #FIXME: should reorder the keys in the dict and then use those, in order to save time
-        """for i in sorted(self.layers["on_surface"].keys()): #Draws all the objects which are supposed to be blitted on a surface, so that when the surface is later blitted, there is no trouble
-            for element in self.layers["on_surface"][i]:
-                self.object_dict[element].draw()
-        for i in sorted(self.layers["on_screen"].keys()):
-            for element in self.layers["on_screen"][i]:
-                self.object_dict[element].draw()"""
-
-        for layer in sorted(self.surface_layers.keys()):
-            for surface in self.surface_layers[layer]:
-                if surface in self.layers:
-                    for layer in sorted(self.layers[surface].keys()):
-                        for element in self.layers[surface][layer]:
-                            self.object_dict[element].draw()
-        """for key in self.layers:
-            if key!="main":
-                for i in sorted(self.layers[key].keys()):
-                    for element in self.layers[key][i]:
-                        self.object_dict[element].draw()"""
-        for i in sorted(self.layers["main"].keys()):
-            for element in self.layers["main"][i]:
-                self.object_dict[element].draw()
+        """A function which should be run every frame, which will draw all the objects"""
+        self.sub_draw("main")
         self.frame_cache_dict={}
+        print(self.frame_draws)
+        self.frame_draws=0
+    def sub_draw(self,key) -> None:
+        """Used to correctly draw surfaces and subsurfaces so that every object appears correctly"""
+        for layer in self.layers[key]: #There is no need to sort, as the dictionary is already sorted
+            for element in self.layers[key][layer]:
+                #if element in self.layers:
+                if binary_search_bool(list(self.layers.keys()),element): #If the element is a surface
+                    self.sub_draw(element)
+                    self.object_dict[element].draw()
+                    self.frame_draws+=1
+                else:
+                    self.object_dict[element].draw()
+                    self.frame_draws+=1
 
     #Decorators
     def frame_cache(self,funct):
@@ -318,7 +315,6 @@ class GraphicalObject():
             name=str(GraphicalBase.nameId)
             GraphicalBase.nameId+=1
         GraphicalBase.container.object_dict[name]=self #Adds the object to the container's object_dict
-        #TODO: should add a random name specifier; should prob use a static variable
         self._name=name
 
         if type(blit_surface)==str:
@@ -337,12 +333,19 @@ class GraphicalObject():
         self.base_xSize=0
         self.base_ySize=0
 
+        if pos_functions[0] is not None and not callable(pos_functions[0]):
+            pos_functions=(lambda value=pos_functions[0]:value, pos_functions[1])
+        if pos_functions[1] is not None and not callable(pos_functions[1]):
+            pos_functions=(pos_functions[0],lambda value=pos_functions[1]:value)
+
+        #TODO: something like this with size functions
+
         self.x_funct=pos_functions[0] if pos_functions[0]!=None else lambda:self._x
         self.y_funct=pos_functions[1] if pos_functions[1]!=None else lambda:self._y
         self.xSize_funct=size_functions[0] if size_functions[0]!=None else lambda:self._xSize
         self.ySize_funct=size_functions[1] if size_functions[1]!=None else lambda:self._ySize
 
-        self.updated=True #Tells if the object has been updated since the last time it was drawn
+        self.updated() #Tells if the object has been updated since the last time it was drawn
 
         for element in size_properties:
             GraphicalBase.decorations.add_function(element,self.update_size)
@@ -355,11 +358,13 @@ class GraphicalObject():
         if self.blit_surface is None:
             if layer not in GraphicalBase.container.layers["main"]:
                 GraphicalBase.container.layers["main"][layer]=[]
+                GraphicalBase.container.layers["main"]=sort_dict(GraphicalBase.container.layers["main"])
             if self not in GraphicalBase.container.layers["main"][layer]:
                 GraphicalBase.container.layers["main"][layer].append(self._name)
         else:
             if self.blit_surface._name not in GraphicalBase.container.layers:
                 GraphicalBase.container.layers[self.blit_surface._name]={}
+                GraphicalBase.container.layers=sort_dict(GraphicalBase.container.layers)
             if layer not in GraphicalBase.container.layers[self.blit_surface._name]:
                 GraphicalBase.container.layers[self.blit_surface._name][layer]=[]
             if self not in GraphicalBase.container.layers[self.blit_surface._name][layer]:
@@ -448,14 +453,18 @@ class GraphicalObject():
         pass
 
     def __str__(self):
-        #FIXME: still uses old variables
         return "<'name':'"+self._name+"', 'pos':("+str(self.x)+","+str(self.y)+"), 'size':("+str(self.xSize)+","+str(self.ySize)+"), 'pos_functions':({posf1},{posf2}), 'size_functions':({sizef1},{sizef2})>".format(posf1=self.x_funct.__name__,posf2=self.y_funct.__name__,sizef1=self.xSize_funct.__name__,sizef2=self.ySize_funct.__name__)
 
     def __repr__(self) -> str:
         return self.__str__()
 
+    def updated(self):
+        """Is used to signal that something is changed graphically and that the draw function should be called next frame"""
+        if self.blit_surface is not None:
+            self.blit_surface.updated_values.append(self._name)
+
+
 class GraphicalRectangle(GraphicalObject):
-    #TODO: change implementation to use decorators
     def __init__(self, name: str="", rect=pygame.Rect((0,0),(100,100)),layer=0,color=(0,0,0),pos_functions=(None,None),size_functions=(None,None),size_properties=[],pos_properties=[]) -> None:
         #print(pos_properties)
         super().__init__(pos_functions,size_functions,layer=layer,name=name,size_properties=size_properties,pos_properties=pos_properties)
@@ -594,7 +603,7 @@ class GraphicalSprite(GraphicalObject):
     def transform_image(self,xSize,ySize,alpha):
         self._image=pygame.transform.scale(self._base_image,(xSize,ySize))
         self._image.fill((255,255,255,alpha),None,pygame.BLEND_RGBA_MULT)
-        self.updated=True
+        self.updated()
 
     #Properties
     @property
@@ -607,27 +616,21 @@ class GraphicalSprite(GraphicalObject):
         self.transform_image(self.xSize,self.ySize,self.alpha)
 
     def draw(self):
-        #TODO: add a size setter
         if self.blit_surface is None:
             GraphicalBase.container.screen.blit(self._image,(self.x,self.y))
         else:
-            if self.updated:
-                self.blit_surface.surface.blit(self._image,(self.x,self.y))
-                self.updated=False
+            self.blit_surface.surface.blit(self._image,(self.x,self.y))
         #GraphicalBase.container.screen.blit(self._image,(self.x,self.y))
 
 class GraphicalSurface(GraphicalObject):
-    def __init__(self, pos_functions=(), size_functions=(), name: str = "", layer=0, size_properties=[], alpha_function=lambda:255, alpha_properties=[], clickable=False, stop_click=False, click_layer=None) -> None:
-        super().__init__(pos_functions, size_functions, name=name, layer=layer, size_properties=size_properties, clickable=clickable, stop_click=stop_click, click_layer=click_layer)
+    def __init__(self, pos_functions=(), size_functions=(), name: str = "", layer=0, size_properties=[], alpha_function=lambda:255, alpha_properties=[], clickable=False, stop_click=False, click_layer=None,blit_surface=None) -> None:
+        super().__init__(pos_functions, size_functions, name=name, layer=layer, size_properties=size_properties, clickable=clickable, stop_click=stop_click, click_layer=click_layer,blit_surface=blit_surface)
         self.alpha_function=alpha_function
         for element in alpha_properties:
             GraphicalBase.decorations.add_function(element,self.update_alpha)
         self.surface=pygame.Surface((self.xSize,self.ySize),pygame.SRCALPHA,32) #Don't know ab those last two args
 
-        if layer not in GraphicalBase.container.surface_layers:
-            GraphicalBase.container.surface_layers[layer]=[]
-        if self._name not in GraphicalBase.container.surface_layers[layer]:
-            GraphicalBase.container.surface_layers[layer].append(self._name)
+        self.updated_values=[]
 
     @property
     def alpha(self):
@@ -635,12 +638,46 @@ class GraphicalSurface(GraphicalObject):
 
     def update_alpha(self):
         self.surface.set_alpha(self.alpha)
+        self.updated=True
     def update_size(self):
         self.surface=pygame.Surface((self.xSize,self.ySize),pygame.SRCALPHA,32)
+        self.updated=True
     def draw(self):
-        GraphicalBase.container.screen.blit(self.surface,(self.x,self.y))
+        if self.blit_surface is None:
+            GraphicalBase.container.screen.blit(self.surface,(self.x,self.y))
+        else:
+            if self.updated:
+                self.blit_surface.surface.blit(self.surface,(self.x,self.y))
+                self.updated=False
 
 #Functions
 def reference(objectName:str) -> GraphicalObject:
     """Returns the object with the name corresponding to objectName"""
     return GraphicalBase.container.object_dict[objectName]
+def sort_dict(dictionary:dict) -> dict:
+    """Sorts a dictionary by its keys and returns it as a new dictionary"""
+    sorted_keys=sorted(dictionary.keys())
+    new_dict={}
+    for key in sorted_keys:
+        new_dict[key]=dictionary[key]
+    return new_dict
+
+def binary_search(list:list,value,low:int=None,high:int=None):
+    """Returns the index of the value in the list, or -1 if it is not in the list"""
+    if low is None:
+        low=0
+    if high is None:
+        high=len(list)-1
+
+    if low>high:
+        return -1
+    mid=(low+high)//2
+    if list[mid]==value:
+        return mid
+    elif list[mid]>value:
+        return binary_search(list,value,low,mid-1)
+    else:
+        return binary_search(list,value,mid+1,high)
+def binary_search_bool(list:list,value):
+    """Returns whether the value is in the list or not"""
+    return binary_search(list,value)>-1
