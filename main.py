@@ -5,11 +5,17 @@ from bisect import insort
 
 #https://stackoverflow.com/questions/46965968/is-there-a-faster-way-to-blit-many-images-on-pygame
 
+class vars:
+    debug=False
+    debug_tools=False
+    debug_stats=True
+
 #TODO: add a way to get absolute (non-surfaced) coordinates of an object
 #TODO: reorder the click dictionary
 #TODO: add binary search to make things significantly faster
 #TODO: add collision methods
 #TODO: add pixel-perfect collision
+#TODO: totally remove layer when no objects are in it
 class Container():
     """
     Container
@@ -143,20 +149,28 @@ class Container():
         self.resize_function()
     def draw(self) -> None:
         """A function which should be run every frame, which will draw all the objects"""
-        self.sub_draw("main")
+        self.sub_draw(self.layers["main"])
         self.frame_cache_dict={}
-        print(self.frame_draws)
+        if vars.debug:
+            print(f"Drew {self.frame_draws} objects")
+            input("Waiting.")
         self.frame_draws=0
-    def sub_draw(self,key) -> None:
+    def sub_draw(self,layer_dict) -> None:
         """Used to correctly draw surfaces and subsurfaces so that every object appears correctly"""
-        for layer in self.layers[key]: #There is no need to sort, as the dictionary is already sorted
-            for element in self.layers[key][layer]:
-                #if element in self.layers:
-                if binary_search_bool(list(self.layers.keys()),element): #If the element is a surface
-                    self.sub_draw(element)
+        if vars.debug:
+            print(f"Begin drawing layer: {layer_dict}")
+        for layer in list(layer_dict.keys()): #There is no need to sort, as the dictionary is already sorted
+            layer_list=layer_dict[layer].copy()
+            for element in layer_list:
+                if element in self.layers:
+                    #if binary_search_bool(list(self.layers.keys()),element): #If the element is a surface
+                    #print(reference(element).updated_values)
+                    self.sub_draw(reference(element).updated_values)
                     self.object_dict[element].draw()
                     self.frame_draws+=1
                 else:
+                    if vars.debug:
+                        print(f"Drawing element: {element}",end="; ")
                     self.object_dict[element].draw()
                     self.frame_draws+=1
 
@@ -322,6 +336,7 @@ class GraphicalObject():
         else:
             self.blit_surface=blit_surface
 
+        self.layer=layer
 
         self._x=0
         self._y=0
@@ -461,7 +476,11 @@ class GraphicalObject():
     def updated(self):
         """Is used to signal that something is changed graphically and that the draw function should be called next frame"""
         if self.blit_surface is not None:
-            self.blit_surface.updated_values.append(self._name)
+            #print("Updated "+self._name+" on "+self.blit_surface._name)
+            if self.layer not in self.blit_surface.updated_values:
+                self.blit_surface.updated_values[self.layer]=[]
+            if self._name not in self.blit_surface.updated_values[self.layer]:
+                self.blit_surface.updated_values[self.layer].append(self._name)
 
 
 class GraphicalRectangle(GraphicalObject):
@@ -619,7 +638,13 @@ class GraphicalSprite(GraphicalObject):
         if self.blit_surface is None:
             GraphicalBase.container.screen.blit(self._image,(self.x,self.y))
         else:
+            if vars.debug:
+                pass
+                #print(f"Drawing {self._name}")
             self.blit_surface.surface.blit(self._image,(self.x,self.y))
+            self.blit_surface.updated_values[self.layer].remove(self._name)
+            if len(self.blit_surface.updated_values[self.layer])==0:
+                self.blit_surface.updated_values.pop(self.layer)
         #GraphicalBase.container.screen.blit(self._image,(self.x,self.y))
 
 class GraphicalSurface(GraphicalObject):
@@ -630,7 +655,7 @@ class GraphicalSurface(GraphicalObject):
             GraphicalBase.decorations.add_function(element,self.update_alpha)
         self.surface=pygame.Surface((self.xSize,self.ySize),pygame.SRCALPHA,32) #Don't know ab those last two args
 
-        self.updated_values=[]
+        self.updated_values={}
 
     @property
     def alpha(self):
