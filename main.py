@@ -1,7 +1,9 @@
 from posixpath import dirname
+from numpy import double
 import pygame
 from os import path,listdir
 from bisect import insort
+from time import time_ns
 
 #https://stackoverflow.com/questions/46965968/is-there-a-faster-way-to-blit-many-images-on-pygame
 
@@ -16,6 +18,7 @@ class vars:
 #TODO: add collision methods
 #TODO: add pixel-perfect collision
 #TODO: totally remove layer when no objects are in it
+#TODO: make frame events depend on seconds instead of frames
 class Container():
     """
     Container
@@ -36,7 +39,7 @@ class Container():
         self.FPS=fps
         self.UPS=ups
         self.update_frame=0 #Which frame is currently being run in order to update
-        self.max_update_frame=self.FPS/self.UPS #The maximum amount of frames that can be run before an update is called
+        #self.max_update_frame=self.FPS/self.UPS #The maximum amount of frames that can be run before an update is called
 
         self.update_function=update_function #A function which should be called every UPS amount of times per second
         self.frame_function=frame_function #A function which should be called every frame
@@ -62,6 +65,17 @@ class Container():
 
         self.frame_draws=0
 
+        #These variables down here are used to improve frame drawing intervals
+        self.last_second=time_ns() #The time at which the last second started
+        self.passed_frames=0 #How many frames have passed in the last second
+        self.last_passed_frames=0 #How many frames have passed in the last second
+        self.updates_in_second=0 #How many updates have been run in the last second
+        self.time_event_dict={} #A dictionary which holds all the time events
+
+        self.average_frame_list=[] #A list which holds the last 5 seconds' fps, in order to calculate the average
+        self.AVERAGE_AMOUNT=100 #The seconds to consider while averaging
+    
+        self.last_frame=time_ns() #The time at which the last frame started
     #Properties
     @property
     def width(self) -> int:
@@ -84,25 +98,51 @@ class Container():
 
     def update(self) -> None:
         """A function called every frame, which will be run UPS amount of times each second, if called every frame"""
-        self.update_frame+=1
-        if self.update_frame>=self.max_update_frame:
+        this_time=time_ns()-self.last_second
+        while this_time-((1000000000/self.UPS)*self.updates_in_second)>=0:
+            self.updates_in_second+=1
             self.update_function()
-            self.update_frame=0
     def frame(self) -> None:
         """A function which should be called every frame"""
+        #Temporary code to implment delta time
+        new_time=time_ns()
+        delta_time=new_time-self.last_frame
+        self.last_frame=new_time
+        print(delta_time)
+
         if self.frame_function!=None:
             self.frame_function()
         for frame_event in self.frame_event_dict["normal"]:
             frame_event.frame()
+        for element in list(self.time_event_dict):
+            self.time_event_dict[element].frame()
         for frame_event in list(self.frame_event_dict):
             if frame_event!="normal":
                 self.frame_event_dict[frame_event].frame()
 
+    def add_to_average(self,amount:int):
+        """Add a value used to calculate fps average"""
+        if amount==0:
+            return
+        if len(self.average_frame_list)>0:
+            average=self.average_fps()
+            if average>amount and average-10<amount:
+                return
+            elif average<amount and average+10>amount:
+                return
+        if len(self.average_frame_list)<self.AVERAGE_AMOUNT:
+            self.average_frame_list.append(amount)
+        else:
+            self.average_frame_list=self.average_frame_list[1:]
+            self.average_frame_list.append(amount)
+    def average_fps(self) -> float:
+        """Returns the average FPS of the last second"""
+        if len(self.average_frame_list)==0:
+            return 0
+        return sum(self.average_frame_list)/len(self.average_frame_list)
     class frame_event():
         """A way to trigger an event which should be repeated a certain amount of times. It will not be overwritten by other events with the same name, if the name is specified"""
         def __init__(self,normal_function,final_function,dict_name="normal",frame_amount=None) -> None:
-            if frame_amount==None:
-                frame_amount=GraphicalBase.container.max_update_frame
             self.frame_amount=frame_amount
             self.frame_id=0
             self.normal_function=normal_function
@@ -116,7 +156,7 @@ class Container():
         def frame(self):
             """Make a frame pass for this frame event"""
             self.frame_id+=1
-            if self.frame_id>=self.frame_amount:
+            if (self.frame_amount!=None and (self.frame_id>=self.frame_amount)) or (self.frame_amount==None and self.frame_id>=GraphicalBase.container.max_update_frame):
                 self.final_function()
                 if self.dict_name=="normal":
                     GraphicalBase.container.frame_event_dict[self.dict_name].remove(self)
@@ -174,6 +214,25 @@ class Container():
                     self.object_dict[element].draw()
                     self.frame_draws+=1
 
+    def step(self):
+        """Performs all the action which are supposed to be performed every game cycle"""
+        """if time_ns()-1000000000>=self.last_second:
+            #print(f"A second has passed with {self.passed_frames} frames")
+            self.last_second=time_ns()
+            if len(self.average_frame_list)<self.AVERAGE_AMOUNT:
+                self.average_frame_list.append(self.passed_frames)
+            else:
+                self.average_frame_list=self.average_frame_list[1:]
+                self.average_frame_list.append(self.passed_frames)
+            self.passed_frames=0"""
+        if time_ns()-1000000000>=self.last_second: #This means that a second has passed
+            self.last_second=time_ns()
+            self.updates_in_second=0
+        self.update()
+        self.frame()
+        self.draw()
+        #self.passed_frames+=1
+
     #Decorators
     def frame_cache(self,funct):
         """A decorator which caches the return value of a function, so that it is only run once per frame"""
@@ -182,6 +241,44 @@ class Container():
                 self.frame_cache_dict[funct.__name__]=funct(*args,**kwargs)
             return self.frame_cache_dict[funct.__name__]
         return internal
+
+    #Classes
+    #http://www.pygame.org/wiki/ConstantGameSpeed?parent=CookBook
+    class time_event():
+        """An event which has a certain duration expressed in time"""
+        def __init__(self,seconds:float, name:str, normal_function:callable=lambda x:0, final_function:callable=lambda x:0) -> None:
+            if name in GraphicalBase.container.time_event_dict:
+                return
+            self.seconds=seconds
+            self.nanoseconds=seconds*1000000000
+            self.start=time_ns()
+            self.name=name
+            self.normal_function=normal_function
+            self.final_function=final_function
+            self.expected_last_step=1-(1/(GraphicalBase.container.FPS/GraphicalBase.container.UPS)) #This number is the step which is supposed to be the last one. It is used to make even really low fps, like 30 fps, relatively smooth
+            GraphicalBase.container.time_event_dict[name]=self
+        def frame(self) -> None:
+            #step=((time_ns()-self.start)/self.nanoseconds)/self.seconds
+            if self.nanoseconds==0:
+                step=1
+            else:
+                step=((time_ns()-self.start))/self.nanoseconds
+            #print(f"Time event {self.name} is at {step}")
+            #if step<self.expected_last_step:
+            if step<1:
+                self.normal_function(step)
+            else:
+                #print("End")
+                self.final_function(step)
+                GraphicalBase.container.time_event_dict.pop(self.name)
+
+    #Properties
+    @property
+    def max_update_frame(self) -> int:
+        """Returns the maximum amount of frames which should be updated per second"""
+        if self.average_fps()==0:
+            return self.FPS/self.UPS
+        return int(self.average_fps()/self.UPS)
 
 class Decorations():
     """A class which enables the use of custom properties, used to update graphical objects only when needed"""
